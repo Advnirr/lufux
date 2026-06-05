@@ -43,6 +43,7 @@ from gi.repository import Gtk, Adw, GLib, Gio, Gdk
 
 # importing logic
 from windows_logic import get_windows_script
+from windows_togo_logic import get_windows_togo_script
 from universal_logic import get_linux_script
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
 
@@ -78,6 +79,8 @@ def get_locale_dict():
             "partition_scheme": "Схема разделов (для Windows):",
             "scheme_gpt": "GPT (UEFI / FAT32)",
             "scheme_mbr": "MBR (Legacy BIOS / NTFS)",
+            "wtg_mode": "Windows To Go (запускаемая Windows на USB)",
+            "wtg_summary": "Windows To Go (GPT / UEFI)",
             "summary_drive": "Целевой накопитель",
             "summary_iso": "Выбранный образ",
             "summary_os": "Определенная система",
@@ -135,6 +138,8 @@ def get_locale_dict():
         "partition_scheme": "Partition Scheme (for Windows):",
         "scheme_gpt": "GPT (UEFI / FAT32)",
         "scheme_mbr": "MBR (Legacy BIOS / NTFS)",
+        "wtg_mode": "Windows To Go (bootable Windows on USB)",
+        "wtg_summary": "Windows To Go (GPT / UEFI)",
         "summary_drive": "Target Drive",
         "summary_iso": "Selected ISO",
         "summary_os": "Detected OS",
@@ -300,9 +305,16 @@ class LufuxWindow(Adw.ApplicationWindow):
         box.append(self.scheme_label)
         
         self.scheme_dropdown = Gtk.DropDown.new_from_strings([T["scheme_gpt"], T["scheme_mbr"]])
-        self.scheme_dropdown.set_visible(False) 
+        self.scheme_dropdown.set_visible(False)
         self.scheme_dropdown.set_size_request(280, -1)
         box.append(self.scheme_dropdown)
+
+        # Windows To Go: deploy a runnable Windows instead of installer media.
+        # Forces GPT/UEFI, so the scheme selector is hidden while it is on.
+        self.wtg_check = Gtk.CheckButton(label=T["wtg_mode"])
+        self.wtg_check.set_visible(False)
+        self.wtg_check.connect("toggled", self.on_wtg_toggled)
+        box.append(self.wtg_check)
 
         self.os_dropdown.connect("notify::selected", self.on_os_changed)
 
@@ -310,8 +322,16 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def on_os_changed(self, dropdown, param):
         is_windows = dropdown.get_selected() == 0
-        self.scheme_label.set_visible(is_windows)
-        self.scheme_dropdown.set_visible(is_windows)
+        self.wtg_check.set_visible(is_windows)
+        wtg = is_windows and self.wtg_check.get_active()
+        self.scheme_label.set_visible(is_windows and not wtg)
+        self.scheme_dropdown.set_visible(is_windows and not wtg)
+
+    def on_wtg_toggled(self, check):
+        # Windows To Go is always GPT/UEFI, so hide the scheme picker
+        wtg = check.get_active()
+        self.scheme_label.set_visible(not wtg)
+        self.scheme_dropdown.set_visible(not wtg)
 
     def setup_page_summary(self):
         page = Adw.StatusPage(title=T["step_summary"], icon_name="emblem-system-symbolic")
@@ -419,7 +439,9 @@ class LufuxWindow(Adw.ApplicationWindow):
         os_text = T["os_win"] if os_idx == 0 else T["os_lin"] if os_idx == 1 else T["os_other"]
         self.sum_os.set_subtitle(os_text)
         
-        if os_idx == 0:
+        if os_idx == 0 and self.wtg_check.get_active():
+            self.sum_scheme.set_subtitle(T["wtg_summary"])
+        elif os_idx == 0:
             scheme_idx = self.scheme_dropdown.get_selected()
             scheme_text = T["scheme_gpt"] if scheme_idx == 0 else T["scheme_mbr"]
             self.sum_scheme.set_subtitle(scheme_text)
@@ -718,7 +740,9 @@ class LufuxWindow(Adw.ApplicationWindow):
         scheme_idx = self.scheme_dropdown.get_selected()
         scheme = "gpt" if scheme_idx == 0 else "mbr"
 
-        if os_idx == 0:
+        if os_idx == 0 and self.wtg_check.get_active():
+            script = get_windows_togo_script()
+        elif os_idx == 0:
             script = get_windows_script(scheme)
         else:
             script = get_linux_script()
