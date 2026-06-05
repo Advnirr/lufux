@@ -34,7 +34,7 @@ def get_distro_info():
     distro_name = "Unknown Linux"
     
     if os.path.exists("/etc/os-release"):
-        with open("/etc/os-release") as f:
+        with open("/etc/os-release", encoding="utf-8") as f:
             for line in f:
                 if line.startswith("ID="):
                     distro_id = line.strip().split("=")[1].strip('"')
@@ -60,18 +60,23 @@ def get_distro_info():
     return base, distro_name
 
 def get_install_cmd(missing_cmds):
+    # list of argv lists (no shell), so package names can't be injected
     base, _ = get_distro_info()
     if base == "unknown" or "pkexec" in missing_cmds:
         return None
-        
-    packages = list(set([PKG_MAP[base][cmd] for cmd in missing_cmds if cmd in PKG_MAP[base]]))
-    packages_str = " ".join(packages)
-    
+
+    packages = sorted({PKG_MAP[base][cmd] for cmd in missing_cmds if cmd in PKG_MAP[base]})
+    if not packages:
+        return None
+
     if base == "arch":
-        return f"pkexec pacman -S --noconfirm {packages_str}"
+        return [["pkexec", "pacman", "-S", "--noconfirm", *packages]]
     elif base == "debian":
-        return f"pkexec apt-get update && pkexec apt-get install -y {packages_str}"
+        return [
+            ["pkexec", "apt-get", "update"],
+            ["pkexec", "apt-get", "install", "-y", *packages],
+        ]
     elif base == "fedora":
-        return f"pkexec dnf install -y {packages_str}"
-        
+        return [["pkexec", "dnf", "install", "-y", *packages]]
+
     return None

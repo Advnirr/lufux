@@ -1,6 +1,7 @@
 import gi
 import os
-import subprocess
+import shutil
+import subprocess  # nosec B404 - all calls below use argv lists, never shell=True
 import threading
 import re
 import sys
@@ -10,18 +11,26 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".config" / "lufux"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
+# argv[0] of the root process, used by pkill -f to stop it
+WORKER_TAG = "lufux-flash-worker"
+
+DEFAULT_CONFIG = {"theme": 0, "lang": ""}
+
+def resolve_bin(name):
+    # absolute path for the binary, fallback to the name
+    return shutil.which(name) or name
+
 def load_config():
-    if CONFIG_FILE.exists():
-        try:
-            with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"theme": 0, "lang": ""}
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return dict(DEFAULT_CONFIG)
+    return data if isinstance(data, dict) else dict(DEFAULT_CONFIG)
 
 def save_config(cfg):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CONFIG_FILE, "w") as f:
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(cfg, f)
 
 APP_CONFIG = load_config()
@@ -461,13 +470,19 @@ class LufuxWindow(Adw.ApplicationWindow):
             threading.Thread(target=self.install_deps_worker, daemon=True).start()
 
     def install_deps_worker(self):
+        # install_cmd is a list of argv lists, run without shell
         try:
-            proc = subprocess.run(self.install_cmd, shell=True, text=True, capture_output=True)
-            if proc.returncode == 0:
-                GLib.idle_add(self.on_deps_installed_success)
-            else:
-                GLib.idle_add(self.show_deps_error, f"{T['err_code']} {proc.returncode}:\n{proc.stderr}")
-        except Exception as e:
+            for cmd in self.install_cmd:
+                argv = [resolve_bin(cmd[0]), *cmd[1:]]
+                proc = subprocess.run(argv, text=True, capture_output=True, check=False)  # nosec B603
+                if proc.returncode != 0:
+                    GLib.idle_add(
+                        self.show_deps_error,
+                        f"{T['err_code']} {proc.returncode}:\n{proc.stderr}",
+                    )
+                    return
+            GLib.idle_add(self.on_deps_installed_success)
+        except OSError as e:
             GLib.idle_add(self.show_deps_error, str(e))
 
     def on_deps_installed_success(self):
@@ -533,11 +548,15 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def kill_worker(self):
         self.is_flashing = False
-        subprocess.run(['pkexec', 'pkill', '-f', '/tmp/lufux.sh'], stderr=subprocess.DEVNULL)
+        # kill the root process by its tag
+        subprocess.run(  # nosec B603
+            [resolve_bin('pkexec'), 'pkill', '-f', WORKER_TAG],
+            stderr=subprocess.DEVNULL, check=False,
+        )
         if self.proc:
             try:
                 self.proc.kill()
-            except:
+            except (ProcessLookupError, OSError):
                 pass
 
     def show_interrupted_error(self):
@@ -625,7 +644,8 @@ class LufuxWindow(Adw.ApplicationWindow):
             dialog.choose(self, None, lambda *args: None)
         else:
             os.environ['LANG'] = new_lang
-            os.execv(sys.executable, ['python'] + sys.argv)
+            # restart to apply the new language
+            os.execv(sys.executable, [sys.executable] + sys.argv)  # nosec B606
 
     def auto_refresh_drives(self):
         if self.current_step == 0:
@@ -638,11 +658,13 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def get_usb_drives(self):
         try:
-            res = subprocess.run(['lsblk', '-I', '8', '-d', '-n', '-o', 'NAME,SIZE,MODEL'], 
-                                 capture_output=True, text=True, check=True)
+            res = subprocess.run(  # nosec B603
+                [resolve_bin('lsblk'), '-I', '8', '-d', '-n', '-o', 'NAME,SIZE,MODEL'],
+                capture_output=True, text=True, check=True,
+            )
             drives = [line.strip() for line in res.stdout.split('\n') if line.strip()]
             return drives if drives else [T["no_drives"]]
-        except:
+        except (subprocess.SubprocessError, OSError):
             return [T["no_drives"]]
 
     def on_select_iso(self, btn):
@@ -668,7 +690,10 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def analyze_iso(self):
         try:
-            res = subprocess.run(['bsdtar', '-tf', self.iso_path], capture_output=True, text=True, timeout=3)
+            res = subprocess.run(  # nosec B603
+                [resolve_bin('bsdtar'), '-tf', self.iso_path],
+                capture_output=True, text=True, timeout=3, check=False,
+            )
             files = res.stdout.lower()
             
             if any(x in files for x in ['sources/install.wim', 'sources/install.esd', 'sources/boot.wim', 'bootmgr']):
@@ -677,7 +702,7 @@ class LufuxWindow(Adw.ApplicationWindow):
                 self.os_dropdown.set_selected(1)
             else:
                 self.os_dropdown.set_selected(2)
-        except:
+        except (subprocess.SubprocessError, OSError):
             self.os_dropdown.set_selected(2)
 
     def append_log(self, msg):
@@ -694,21 +719,23 @@ class LufuxWindow(Adw.ApplicationWindow):
         scheme = "gpt" if scheme_idx == 0 else "mbr"
 
         if os_idx == 0:
-            script = get_windows_script(iso, dev, scheme)
+            script = get_windows_script(scheme)
         else:
-            script = get_linux_script(iso, dev)
+            script = get_linux_script()
 
+        # run via bash -c, pass iso/dev/scheme as $1/$2/$3 instead of a temp
+        # file, so the iso name can't be interpreted by a shell. WORKER_TAG is
+        # argv[0] so kill_worker can find the root process.
         try:
-            with open("/tmp/lufux.sh", "w") as f: 
-                f.write(script)
-            os.chmod("/tmp/lufux.sh", 0o755)
-            
-            self.proc = subprocess.Popen(['pkexec', 'bash', '/tmp/lufux.sh'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            
+            self.proc = subprocess.Popen(  # nosec B603
+                [resolve_bin('pkexec'), 'bash', '-c', script, WORKER_TAG, iso, dev, scheme],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            )
+
             for line in iter(self.proc.stdout.readline, ''):
-                if not self.is_flashing: 
+                if not self.is_flashing:
                     break
-                
+
                 line = line.strip()
                 if line.startswith("STATUS:"):
                     msg = line.replace("STATUS:", "").strip()
@@ -725,7 +752,7 @@ class LufuxWindow(Adw.ApplicationWindow):
                         GLib.idle_add(self.append_log, f"> {line}")
 
             self.proc.wait()
-            
+
             if self.is_flashing:
                 if self.proc.returncode == 126:
                     GLib.idle_add(self.append_log, T["canceled"])
@@ -733,10 +760,9 @@ class LufuxWindow(Adw.ApplicationWindow):
                 elif self.proc.returncode != 0:
                     GLib.idle_add(self.append_log, f"{T['err_crit']} ({T['err_code']} {self.proc.returncode})")
                     self.is_flashing = False
-
-        finally:
-            if os.path.exists("/tmp/lufux.sh"): 
-                os.remove("/tmp/lufux.sh")
+        except OSError as e:
+            GLib.idle_add(self.append_log, f"{T['err_crit']} {e}")
+            self.is_flashing = False
 
     def on_flash_success(self):
         self.is_flashing = False

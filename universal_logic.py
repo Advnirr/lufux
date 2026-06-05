@@ -17,24 +17,28 @@ def get_locale_dict():
         "sync": "Syncing I/O (sync)...",
     }
 
-def get_linux_script(iso_path, dev_path):
+def get_linux_script():
+    # iso/dev come in as $1/$2, not interpolated, so a bad file name can't inject
     T = get_locale_dict()
-    
+
     script = f"""#!/bin/bash
 set -e
 
+ISO_PATH="$1"
+DEV_PATH="$2"
+
 # ISO size in bytes
-SIZE=$(stat -c%s "{iso_path}")
+SIZE=$(stat -c%s "$ISO_PATH")
 
 echo "STATUS: {T['unmount']}"
-umount {dev_path}* 2>/dev/null || true
-wipefs -a {dev_path}
+umount "$DEV_PATH"* 2>/dev/null || true
+wipefs -a "$DEV_PATH"
 
 echo "STATUS: {T['copy']}"
 # Progress parsing
-dd if="{iso_path}" of="{dev_path}" bs=4M status=progress 2>&1 | tr '\\r' '\\n' | while read -r line; do
+dd if="$ISO_PATH" of="$DEV_PATH" bs=4M status=progress 2>&1 | tr '\\r' '\\n' | while read -r line; do
     if [[ $line == *" bytes "* ]]; then
-        BYTES=$(echo $line | awk '{{print $1}}')
+        BYTES=$(echo "$line" | awk '{{print $1}}')
         PCT=$(awk -v b="$BYTES" -v s="$SIZE" 'BEGIN {{printf "%.1f", (b/s)*100}}')
         echo "${{PCT}}%"
     fi
