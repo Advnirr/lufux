@@ -8,10 +8,10 @@
 
 <p align="left">
   <a href="https://github.com/Advnirr/lufux/releases">
-    <img src="https://img.shields.io/github/v/release/Advnirr/lufux?style=flat-square&color=007EC6&v=1" alt="Release">
+    <img src="https://img.shields.io/badge/release-v1.2.0--stable-007EC6?style=flat-square" alt="Release">
   </a>
   <a href="https://github.com/Advnirr/lufux/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/Advnirr/lufux?style=flat-square&color=FF5722&v=1" alt="License">
+    <img src="https://img.shields.io/badge/license-GPL--3.0-FF5722?style=flat-square" alt="License">
   </a>
 </p>
 
