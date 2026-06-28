@@ -58,5 +58,15 @@ python main.py
 ```
 Note: Make sure you have the required system dependencies installed.
 
+## 💜 Support
+
+If Lufux helped you write a bootable drive, you can support continued development directly:
+
+**USDT** · TON network
+
+```
+UQDFela8stCZykNL2cLw2erPkzjAgSf-GLXoJuiTEmEckTNB
+```
+
 ## License
 This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See the [LICENSE](LICENSE) file for details.
