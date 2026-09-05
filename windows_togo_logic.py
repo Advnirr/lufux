@@ -95,6 +95,13 @@ echo "STATUS: {T['prep']}"
 detach || exit 1
 wipefs -a "$DEV_PATH"
 
+# sd* names partitions by appending a number, but a device whose own name ends
+# in a digit - nvme0n1, mmcblk0, loop0 - separates them with a "p"
+case "$DEV_PATH" in
+    *[0-9]) PS="p" ;;
+    *)      PS="" ;;
+esac
+
 echo "STATUS: {T['part']}"
 # GPT: partition 1 = FAT32 ESP, partition 2 = NTFS Windows
 parted -s "$DEV_PATH" mklabel gpt
@@ -103,8 +110,8 @@ parted -s "$DEV_PATH" set 1 esp on
 parted -s "$DEV_PATH" mkpart Windows ntfs 1025MiB 100%
 sleep 2
 
-mkfs.vfat -F 32 -n "ESP" "${{DEV_PATH}}1"
-mkfs.ntfs -f -L "Windows" "${{DEV_PATH}}2"
+mkfs.vfat -F 32 -n "ESP" "${{DEV_PATH}}${{PS}}1"
+mkfs.ntfs -f -L "Windows" "${{DEV_PATH}}${{PS}}2"
 
 # locate the Windows image inside the ISO
 mount -o loop,ro "$ISO_PATH" "$ISO_MNT"
@@ -128,11 +135,11 @@ echo "STATUS: {T['apply']}"
 # its own to leave the deployed Windows unbootable. See wimapply(1),
 # NTFS VOLUME EXTRACTION.
 detach || exit 1
-wimlib-imagex apply "$TF" "$IMG_INDEX" "${{DEV_PATH}}2" 2>&1
+wimlib-imagex apply "$TF" "$IMG_INDEX" "${{DEV_PATH}}${{PS}}2" 2>&1
 
 echo "STATUS: {T['boot']}"
-mount "${{DEV_PATH}}2" "$WIN_MNT"
-mount "${{DEV_PATH}}1" "$EFI_MNT"
+mount "${{DEV_PATH}}${{PS}}2" "$WIN_MNT"
+mount "${{DEV_PATH}}${{PS}}1" "$EFI_MNT"
 mkdir -p "$EFI_MNT/EFI/Microsoft/Boot" "$EFI_MNT/EFI/Boot"
 
 if [ ! -f "$WIN_MNT/Windows/Boot/EFI/bootmgfw.efi" ]; then
