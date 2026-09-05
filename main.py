@@ -776,6 +776,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         f_iso.add_pattern("*.iso")
         filters = Gio.ListStore.new(Gtk.FileFilter)
         filters.append(f_iso)
+        dialog.set_filters(filters)
+        dialog.set_default_filter(f_iso)
         dialog.open(self, None, self.on_file_selected)
 
     def on_file_selected(self, dialog, result):
@@ -789,21 +791,58 @@ class LufuxWindow(Adw.ApplicationWindow):
         except GLib.Error:
             pass
 
-    def analyze_iso(self):
+    # A current Windows ISO keeps its real tree in a UDF filesystem and leaves
+    # only a README on the ISO9660 side, and libarchive cannot read UDF at all -
+    # so listing one with bsdtar returned two entries and every Windows image
+    # was detected as "Other". Match the raw image instead. ISO9660 records hold
+    # names as plain bytes and UDF holds them as UTF-16BE, and UDF stores each
+    # path component in its own record, so the markers are single components.
+    ISO_WINDOWS = ('install.wim', 'install.esd', 'boot.wim', 'bootmgr.efi')
+    ISO_LINUX = ('isolinux', 'casper', 'vmlinuz', 'initrd.img', 'grub.cfg')
+    # Names live in the volume metadata, which sits near the front of the image
+    # (630 KB in on the ISO this was built against). A match usually lands in
+    # the first chunk; this bound is what an unrecognised image costs.
+    ISO_SCAN = 64 << 20
+    ISO_CHUNK = 4 << 20
+
+    @staticmethod
+    def _iso_views(buf):
+        """The chunk as lowercased text, in each encoding a name can be in.
+
+        UTF-16BE is decoded at both alignments: nothing promises the records
+        begin on an even offset within the chunk.
+        """
+        yield buf.decode('latin-1').lower()
+        for start in (0, 1):
+            body = buf[start:]
+            yield body[:len(body) & ~1].decode('utf-16-be', 'ignore').lower()
+
+    def _iso_has(self, markers):
         try:
-            res = subprocess.run(  # nosec B603
-                [resolve_bin('bsdtar'), '-tf', self.iso_path],
-                capture_output=True, text=True, timeout=3, check=False,
-            )
-            files = res.stdout.lower()
-            
-            if any(x in files for x in ['sources/install.wim', 'sources/install.esd', 'sources/boot.wim', 'bootmgr']):
-                self.os_dropdown.set_selected(0)
-            elif any(x in files for x in ['isolinux', 'casper', 'arch/', 'vmlinuz', 'live/', 'boot/grub/']):
-                self.os_dropdown.set_selected(1)
-            else:
-                self.os_dropdown.set_selected(2)
-        except (subprocess.SubprocessError, OSError):
+            with open(self.iso_path, 'rb') as f:
+                carry = b''
+                read = 0
+                while read < self.ISO_SCAN:
+                    buf = f.read(self.ISO_CHUNK)
+                    if not buf:
+                        break
+                    read += len(buf)
+                    window = carry + buf
+                    for text in self._iso_views(window):
+                        if any(m in text for m in markers):
+                            return True
+                    # a name can straddle two chunks
+                    carry = window[-64:]
+        except OSError:
+            return False
+        return False
+
+    def analyze_iso(self):
+        if self._iso_has(self.ISO_WINDOWS):
+            self.os_dropdown.set_selected(0)
+        elif self._iso_has(self.ISO_LINUX):
+            self.os_dropdown.set_selected(1)
+        else:
             self.os_dropdown.set_selected(2)
 
     def append_log(self, msg):
