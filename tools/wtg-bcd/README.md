@@ -8,12 +8,28 @@ from scratch; this directory is what verifies it, by running the real
 
 ## Status
 
-Solved and verified. `bcd_logic.build_bcd()` produces a store that bootmgr
-parses, and whose `device`/`osdevice` elements resolve to the drive's NTFS
-partition: bootmgr loads `\Windows\system32\winload.efi` off that partition and
-hands control to it. In the test image winload then stops at
-`\Windows\system32\config\system`, which is its own next step - the test
-partition holds winload and nothing else.
+Solved and verified end to end. A 15 GiB drive deployed by
+`windows_togo_logic.py` boots Windows 11 under OVMF/KVM as a USB mass-storage
+device, runs the specialize pass to completion and reaches OOBE.
+
+The store has to satisfy two very different readers, and each rejects different
+things:
+
+* **bootmgr** only cares about the object graph and the device elements. It
+  ignores the hive's security descriptor and the `Description` key entirely.
+* **Windows** loads the same file through the registry. sysprep's specialize
+  pass opens it, and anything wrong there fails the pass - which surfaces on
+  first boot as "Windows Setup could not configure Windows to run on this
+  computer's hardware", *after* the desktop has already appeared. Two things
+  were needed for that: a security descriptor with a real owner (an ownerless
+  one is `STATUS_INVALID_OWNER`, 0xc000005a), and `Description\System` = 1.
+
+The `System` requirement is not guesswork: `spbcd.dll`'s mark step reads
+`Description\System` and writes `Description\TreatAsSystem` = 1 next to it when
+that is set, and its "is this the system store" predicate then requires both to
+be non-zero. Neither the `BCD-Template` in a Windows image nor the BCD on an
+installer ISO carries `System`, because neither is a system store, so there is
+no sample to copy it from - `objdump -d` on `spbcd.dll` is the source.
 
 ## The device element
 
@@ -56,7 +72,7 @@ Boot the built image and read the status code on the console:
 | `0xc000000e` | device element accepted, volume not found |
 | `0xc0000225` | element well-formed, but no partition on the disk matches it |
 | `0xc000000f` on `winload.efi` | partition resolved, winload not on it |
-| `File: \Windows\system32\config\system` | **success** - winload ran |
+| `File: \Windows\system32\config\system` | winload ran (in a stub test image, this is as far as it goes) |
 | nothing at all, then a reset | also success: bootmgr handed off silently |
 
 That last row is the normal outcome for a single-entry store, because bootmgr
@@ -88,3 +104,27 @@ wimlib-imagex extract install.esd 1 \
 cropped to the console text. Under TCG a boot takes about a minute, so
 screenshot after 20s at the earliest. `run.sh` puts its monitor socket under
 `/tmp` because the scratchpad path exceeds the 108-byte `AF_UNIX` limit.
+
+## Testing a real deployment
+
+The stub image above only proves the boot chain. To exercise everything Windows
+itself checks, deploy for real into a file and boot that:
+
+```sh
+truncate -s 15G disk.img
+sudo losetup -P --find --show disk.img          # /dev/loopN
+sudo bash <the script windows_togo_logic.py generates> <windows.iso> /dev/loopN
+sudo losetup -d /dev/loopN
+qemu-img create -f qcow2 -b disk.img -F raw run.qcow2   # keep disk.img pristine
+```
+
+Boot `run.qcow2` with `-device qemu-xhci -device usb-storage` so the drive is
+seen the way it will be in real use, and give it 8-10 minutes: OOBE is the
+success condition, not the desktop. When Setup fails, the reason is in
+`\Windows\Panther\setuperr.log` on the NTFS partition, which is worth reading
+before changing anything - it names the failing sysprep module and its NTSTATUS.
+
+`mkntfs` cannot read the geometry of a loop partition and warns that Windows
+will not boot from it. That only concerns the NTFS boot sector's hidden-sectors
+field, which nothing in a UEFI boot reads; the drive still boots. On a real
+block device the warning does not appear.
