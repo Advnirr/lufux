@@ -8,7 +8,7 @@
 
 <p align="left">
   <a href="https://github.com/Advnirr/lufux/releases">
-    <img src="https://img.shields.io/badge/release-v1.2.0--stable-007EC6?style=flat-square" alt="Release">
+    <img src="https://img.shields.io/badge/release-v1.3.0--stable-007EC6?style=flat-square" alt="Release">
   </a>
   <a href="https://github.com/Advnirr/lufux/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-GPL--3.0-FF5722?style=flat-square" alt="License">
@@ -21,13 +21,14 @@
 
 * **Поддержка Windows:** Автоматически определяет Windows ISO и применяет корректную схему разметки (GPT/FAT32 для UEFI, или MBR/NTFS для Legacy BIOS).
 * **Обработка больших WIM-файлов:** Автоматически обнаруживает непрерывные `.esd` архивы и `.wim` файлы размером более 4ГБ, разделяя или преобразуя их на лету для обхода ограничений FAT32.
+* **Windows To Go:** Устанавливает Windows на саму флешку, так что она загружается как полноценная переносная система, а не как установщик. Собирает BCD-хранилище вручную, привязанное к GPT-идентификаторам самого накопителя; проверено до экрана OOBE на настоящей USB-флешке.
 * **Поддержка Linux / Isohybrid:** Использует прямое побитовое копирование блоков с помощью команды `dd` для гарантированной загрузки дистрибутивов Linux.
 * **Нативность:** Интерфейс GTK4/Adwaita.
 
 ## 📦 Зависимости
 
 Для запуска Lufux, вам потребуются следующие системные пакеты:
-`python-gobject`, `gtk4`, `libadwaita`, `wimlib` (для wimlib-imagex), `rsync`, `parted`, `polkit` (для pkexec), `libarchive` (для bsdtar).
+`python-gobject`, `gtk4`, `libadwaita`, `wimlib` (для wimlib-imagex), `rsync`, `parted`, `polkit` (для pkexec), `dosfstools` (для mkfs.vfat), `ntfs-3g` (для mkfs.ntfs).
 
 ## 🚀 Установка
 

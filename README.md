@@ -8,7 +8,7 @@ A minimalist, universal, and functional GUI tool to create bootable USB drives o
 
 <p align="left">
   <a href="https://github.com/Advnirr/lufux/releases">
-    <img src="https://img.shields.io/badge/release-v1.2.0--stable-007EC6?style=flat-square" alt="Release">
+    <img src="https://img.shields.io/badge/release-v1.3.0--stable-007EC6?style=flat-square" alt="Release">
   </a>
   <a href="https://github.com/Advnirr/lufux/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-GPL--3.0-FF5722?style=flat-square" alt="License">
@@ -21,13 +21,14 @@ A minimalist, universal, and functional GUI tool to create bootable USB drives o
 
 * **Windows Support:** Automatically detects Windows ISOs and applies the correct partition scheme (GPT/FAT32 for UEFI, or MBR/NTFS for Legacy BIOS).
 * **Large WIM Handling:** Automatically detects solid `.esd` archives and `.wim` files larger than 4GB, splitting or converting them on the fly to bypass FAT32 limitations.
+* **Windows To Go:** Installs Windows onto the USB drive itself, so it boots as a full portable system rather than an installer. Writes a hand-built BCD store keyed to the drive's own GPT GUIDs, verified to reach OOBE from a real removable stick.
 * **Linux / Isohybrid Support:** Uses direct bit-for-bit block copying via `dd` for guaranteed bootability of Linux distributions.
 * **Native:** GTK4/Adwaita interface.
 
 ## 📦 Dependencies
 
 To run Lufux, you need the following system packages:
-`python-gobject`, `gtk4`, `libadwaita`, `wimlib` (for wimlib-imagex), `rsync`, `parted`, `polkit` (for pkexec), `libarchive` (for bsdtar).
+`python-gobject`, `gtk4`, `libadwaita`, `wimlib` (for wimlib-imagex), `rsync`, `parted`, `polkit` (for pkexec), `dosfstools` (for mkfs.vfat), `ntfs-3g` (for mkfs.ntfs).
 
 ## 🚀 Installation
 
