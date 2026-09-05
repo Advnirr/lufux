@@ -1,5 +1,5 @@
-import sys, struct
-sys.path.insert(0, "/tmp/claude-1000/-home-mikhail-MyProjectsFolder-GitHub-lufux-linux/9dbb24ea-fff3-45bd-9498-7f9835cf1539/scratchpad")
+import os, sys, struct
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from regf import Hive
 
 TYPE = {0x10100002: "Windows Boot Manager", 0x10200003: "Windows OS Loader",

@@ -1,4 +1,5 @@
 import os
+import shlex
 
 # Locals
 def get_locale_dict():
@@ -13,6 +14,8 @@ def get_locale_dict():
             "no_bootmgr": "В развёрнутой системе не найден bootmgfw.efi",
             "apply": "Развёртывание Windows на накопитель (это надолго)...",
             "boot": "Установка загрузчика UEFI...",
+            "bcd": "Создание загрузочного хранилища BCD...",
+            "no_bcd": "Не удалось создать хранилище BCD",
             "sync": "Синхронизация ввода-вывода (sync)..."
         }
     return {
@@ -24,6 +27,8 @@ def get_locale_dict():
         "no_bootmgr": "bootmgfw.efi not found in the deployed system",
         "apply": "Deploying Windows to the drive (this takes a while)...",
         "boot": "Installing the UEFI bootloader...",
+        "bcd": "Writing the BCD boot store...",
+        "no_bcd": "Failed to write the BCD boot store",
         "sync": "Syncing I/O (sync)..."
     }
 
@@ -36,6 +41,10 @@ def get_windows_togo_script(img_index=1):
 
     # img_index is an int chosen in Python, never user free-text
     idx = int(img_index)
+    # bcd_logic.py ships beside this module, both in the repo and under
+    # /usr/share/lufux; the script runs as root through pkexec and only reads it
+    bcd_logic = shlex.quote(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "bcd_logic.py"))
 
     script = f"""#!/bin/bash
 set -eo pipefail
@@ -120,13 +129,16 @@ cp "$WIN_MNT/Windows/Boot/EFI/bootmgfw.efi" "$EFI_MNT/EFI/Boot/bootx64.efi"
 cp "$WIN_MNT/Windows/Boot/EFI/bootmgfw.efi" "$EFI_MNT/EFI/Microsoft/Boot/bootmgfw.efi"
 # boot resources (fonts, locale, etc.)
 cp -r "$WIN_MNT/Windows/Boot/EFI/." "$EFI_MNT/EFI/Microsoft/Boot/" 2>/dev/null || true
-# BCD store seeded from the OS image template. NOTE: this template carries the
-# settings objects and {{bootmgr}}, but none of the elements that bind a boot
-# entry to a volume (11000001 ApplicationDevice, 21000001 OSDevice,
-# 24000001 DisplayOrder) - those are what bcdboot.exe fills in, and there is
-# no bcdboot on Linux. The drive will not boot until the BCD is completed.
-if [ -f "$WIN_MNT/Windows/System32/config/BCD-Template" ]; then
-    cp "$WIN_MNT/Windows/System32/config/BCD-Template" "$EFI_MNT/EFI/Microsoft/Boot/BCD"
+echo "STATUS: {T['bcd']}"
+# The BCD store. bcdboot.exe does not exist on Linux and the BCD-Template inside
+# the image is not usable on its own - it carries the settings objects and
+# {{bootmgr}} but none of the elements that bind a boot entry to a volume, so a
+# drive holding only the template stops at 0xc000000f. bcd_logic.py writes a
+# complete store instead, reading the drive's own GPT for the identifiers that
+# name partition 2 to the boot manager.
+if ! python3 {bcd_logic} "$DEV_PATH" 2 "$EFI_MNT/EFI/Microsoft/Boot/BCD"; then
+    echo "STATUS: {T['no_bcd']}"
+    exit 1
 fi
 
 echo "STATUS: {T['sync']}"

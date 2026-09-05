@@ -7,9 +7,10 @@ elements that bind a boot entry to a volume (11000001 ApplicationDevice,
 21000001 OSDevice, 24000001 DisplayOrder). A drive holding only the template
 fails at boot with 0xc000000f.
 
-So this writes a minimal store from scratch. Every hive-format constant here
-was read out of a real Windows 11 BCD rather than guessed, and test_bcd.py
-checks the writer against that file.
+So this writes a minimal store from scratch. Every hive-format constant and
+every field of the device elements was read out of a real BCD rather than
+guessed, and the whole store is checked by booting it: tools/wtg-bcd holds the
+harness that runs a real bootmgfw.efi against it under QEMU/OVMF.
 """
 
 import struct
@@ -151,3 +152,124 @@ def device_boot():
     return (b"\x00" * 16
             + struct.pack("<IIII", 5, 0, 0x48, 0)
             + b"\x00" * 56)
+
+
+def device_partition(partition_guid, disk_guid):
+    """`device partition=...` for a partition on a GPT disk.
+
+    The 72-byte descriptor is laid out as measured from a real BCD (the byte
+    offsets below are into the descriptor, i.e. 16 past the start of the
+    element, which begins with the zero options GUID):
+
+        +0   device type 6 - a partition
+        +4   flags
+        +8   descriptor length, 0x48
+        +16  partition identifier: the GPT partition GUID
+        +32  the containing device: 0 = a local hard disk
+        +36  its partitioning: 0 = GPT
+        +40  disk identifier: the GPT disk GUID
+
+    Both GUIDs are the raw 16 bytes as they appear in the GPT, i.e. mixed
+    endian (uuid.UUID.bytes_le), not the printed form.
+
+    On an MBR disk the same descriptor carries the partition's byte offset at
+    +16 and the 4-byte MBR disk signature at +40, with 1 (MBR) at +36; lufux
+    only ever writes GPT drives, so that variant is not built here.
+    """
+    if len(partition_guid) != 16 or len(disk_guid) != 16:
+        raise ValueError("GPT GUIDs must be 16 raw bytes")
+    d = bytearray(72)
+    struct.pack_into("<IIII", d, 0, 6, 0, 0x48, 0)
+    d[16:32] = partition_guid
+    struct.pack_into("<II", d, 32, 0, 0)
+    d[40:56] = disk_guid
+    return b"\x00" * 16 + bytes(d)
+
+
+def gpt_guids(disk_path, partition_number):
+    """Read (partition_guid, disk_guid) out of a disk's GPT, as raw bytes.
+
+    Reads the block device directly rather than shelling out to parted or
+    sgdisk: the GUIDs are needed exactly as stored, and every printed form
+    would have to be converted back.
+    """
+    with open(disk_path, "rb") as f:
+        for sector in (512, 4096):
+            f.seek(sector)
+            header = f.read(92)
+            if header[:8] == b"EFI PART":
+                break
+        else:
+            raise ValueError(f"no GPT header on {disk_path}")
+        disk_guid = header[0x38:0x48]
+        entry_lba, count, entry_size = struct.unpack("<QII", header[0x48:0x58])
+        if not 1 <= partition_number <= count:
+            raise ValueError(f"no partition {partition_number} on {disk_path}")
+        f.seek(entry_lba * sector + (partition_number - 1) * entry_size)
+        entry = f.read(entry_size)
+    if entry[:16] == b"\x00" * 16:
+        raise ValueError(f"partition {partition_number} on {disk_path} is unused")
+    return entry[16:32], disk_guid
+
+
+# The store holds a single boot entry, so its GUID only has to be stable and
+# distinct from the well-known ones.
+WTG_ENTRY_GUID = "{a1b2c3d4-1111-4a2b-9c3d-4e5f60718293}"
+
+
+def build_bcd(partition_guid, disk_guid, description="Windows To Go", timeout=30):
+    """Return a complete BCD store pointing at one Windows partition."""
+    w = HiveWriter("BCD")
+    sk = w.security()
+
+    def obj(guid, otype, elements):
+        desc = w.key("Description", sk,
+                     values=[w.value("Type", REG_DWORD, struct.pack("<I", otype))])
+        els = [w.key(eid, sk, values=[w.value("Element", vtype, data)])
+               for eid, vtype, data in elements]
+        return w.key(guid, sk, subkeys=[desc, w.key("Elements", sk, subkeys=els)])
+
+    device = device_partition(partition_guid, disk_guid)
+    objects = [
+        obj(WTG_ENTRY_GUID, TYPE_OSLOADER, [
+            (EL_DEVICE, REG_BINARY, device),
+            (EL_PATH, REG_SZ, _sz(r"\Windows\system32\winload.efi")),
+            (EL_DESCRIPTION, REG_SZ, _sz(description)),
+            (EL_LOCALE, REG_SZ, _sz("en-US")),
+            (EL_OSDEVICE, REG_BINARY, device),
+            (EL_SYSTEMROOT, REG_SZ, _sz(r"\Windows")),
+        ]),
+        # {bootmgr}'s own device is `boot`: the volume it was loaded from,
+        # which is the ESP of whichever drive the firmware picked.
+        obj(BOOTMGR_GUID, TYPE_BOOTMGR, [
+            (EL_DEVICE, REG_BINARY, device_boot()),
+            (EL_PATH, REG_SZ, _sz(r"\EFI\Microsoft\Boot\bootmgfw.efi")),
+            (EL_DESCRIPTION, REG_SZ, _sz("Windows Boot Manager")),
+            (EL_LOCALE, REG_SZ, _sz("en-US")),
+            (EL_DEFAULT, REG_SZ, _sz(WTG_ENTRY_GUID)),
+            (EL_DISPLAYORDER, REG_MULTI_SZ, _multi_sz([WTG_ENTRY_GUID])),
+            (EL_TIMEOUT, REG_BINARY, struct.pack("<I", timeout)),
+        ]),
+    ]
+
+    desc = w.key("Description", sk,
+                 values=[w.value("KeyName", REG_SZ, _sz("BCD"))])
+    root = w.key("System", sk,
+                 subkeys=[desc, w.key("Objects", sk, subkeys=objects)], root=True)
+    return w.serialise(root[0])
+
+
+def main(argv):
+    """bcd_logic.py <disk> <partition-number> <output-BCD> [description]"""
+    if not 4 <= len(argv) <= 5:
+        raise SystemExit(main.__doc__)
+    disk, number, out = argv[1], int(argv[2]), argv[3]
+    part_guid, disk_guid = gpt_guids(disk, number)
+    store = build_bcd(part_guid, disk_guid, *argv[4:5])
+    with open(out, "wb") as f:
+        f.write(store)
+
+
+if __name__ == "__main__":
+    import sys
+    main(sys.argv)
