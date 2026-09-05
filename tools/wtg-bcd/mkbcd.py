@@ -1,6 +1,7 @@
 """Assemble a BCD from bcd_logic primitives, for the QEMU oracle."""
+import os
 import sys
-sys.path.insert(0, "/home/mikhail/MyProjectsFolder/GitHub/lufux-linux")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 import bcd_logic as B
 
 
