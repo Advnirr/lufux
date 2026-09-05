@@ -118,11 +118,25 @@ sudo losetup -d /dev/loopN
 qemu-img create -f qcow2 -b disk.img -F raw run.qcow2   # keep disk.img pristine
 ```
 
-Boot `run.qcow2` with `-device qemu-xhci -device usb-storage` so the drive is
-seen the way it will be in real use, and give it 8-10 minutes: OOBE is the
-success condition, not the desktop. When Setup fails, the reason is in
-`\Windows\Panther\setuperr.log` on the NTFS partition, which is worth reading
-before changing anything - it names the failing sysprep module and its NTSTATUS.
+Then boot it:
+
+```sh
+./boot_drive.sh disk.img real 30 60 90 150 210 300 400 500 600
+./boot_drive.sh /dev/sdX stick      # a finished drive; needs root, and Windows
+                                    # will write to it as it would on real hardware
+```
+
+`boot_drive.sh` attaches the target as a USB mass-storage device, so it is seen
+the way it will be in real use, and screenshots the console at each given
+second. A regular file is booted through a qcow2 overlay so the deployment stays
+pristine and the test can be repeated. Give it 8-10 minutes: **OOBE is the
+success condition, not the desktop** - the specialize pass runs well after the
+first graphical screen appears. The script prints each screenshot's mean
+brightness; a mean near zero is a black screen, i.e. a boot that drew nothing.
+
+When Setup fails, the reason is in `\Windows\Panther\setuperr.log` on the NTFS
+partition, which is worth reading before changing anything - it names the
+failing sysprep module and its NTSTATUS.
 
 `mkntfs` cannot read the geometry of a loop partition and warns that Windows
 will not boot from it. That only concerns the NTFS boot sector's hidden-sectors
