@@ -45,8 +45,30 @@ class HiveWriter:
         struct.pack_into(fmt, self.buf, cell_off + 4 + field_off, *values)
 
     def security(self):
-        """One descriptor shared by every key: self-relative, NULL DACL."""
-        sd = struct.pack("<BBHIIII", 1, 0, 0x8004, 0, 0, 0, 0)
+        """One descriptor shared by every key.
+
+        bootmgr ignores the descriptor entirely, but Windows does not: sysprep's
+        specialize pass opens this store through the registry, and a descriptor
+        without an owner is rejected there with STATUS_INVALID_OWNER
+        (0xc000005a), which fails the whole pass. So write a real self-relative
+        descriptor: Administrators owns it, and both Administrators and SYSTEM
+        get full access, inherited by every key below.
+        """
+        admins = struct.pack("<BB6sII", 1, 2, b"\x00\x00\x00\x00\x00\x05", 32, 544)
+        system = struct.pack("<BB6sI", 1, 1, b"\x00\x00\x00\x00\x00\x05", 18)
+        KEY_ALL_ACCESS, CONTAINER_INHERIT = 0xF003F, 0x02
+
+        def ace(sid):
+            return struct.pack("<BBHI", 0, CONTAINER_INHERIT, 8 + len(sid),
+                               KEY_ALL_ACCESS) + sid
+
+        aces = ace(admins) + ace(system)
+        dacl = struct.pack("<BBHHH", 2, 0, 8 + len(aces), 2, 0) + aces
+        owner_at = 20 + len(dacl)
+        group_at = owner_at + len(admins)
+        sd = (struct.pack("<BBHIIII", 1, 0, 0x8004, owner_at, group_at, 0, 20)
+              + dacl + admins + system)
+
         off = self.alloc(b"sk" + struct.pack("<HIIII", 0, 0, 0, 1, len(sd)) + sd)
         self._patch(off, 0x04, "<II", off, off)      # flink/blink -> itself
         return off
