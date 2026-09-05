@@ -1,6 +1,5 @@
 import gi
 import os
-import shutil
 import subprocess  # nosec B404 - all calls below use argv lists, never shell=True
 import threading
 import re
@@ -16,17 +15,44 @@ WORKER_TAG = "lufux-flash-worker"
 
 DEFAULT_CONFIG = {"theme": 0, "lang": ""}
 
+# resolving through $PATH would be no better than handing subprocess a bare
+# name, since $PATH is user-controlled; only these locations are trusted.
+TRUSTED_BIN_DIRS = ("/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/local/sbin")
+_BIN_CACHE = {}
+
 def resolve_bin(name):
-    # absolute path for the binary, fallback to the name
-    return shutil.which(name) or name
+    # cached: auto_refresh_drives resolves lsblk every 2 seconds for the whole
+    # lifetime of the app. Only hits are cached, so a binary installed by the
+    # dependency installer is still picked up on the next call.
+    path = _BIN_CACHE.get(name)
+    if path is None:
+        for directory in TRUSTED_BIN_DIRS:
+            candidate = os.path.join(directory, name)
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                path = candidate
+                _BIN_CACHE[name] = path
+                break
+    return path or name
 
 def load_config():
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
+        # ValueError covers both JSONDecodeError and the UnicodeDecodeError a
+        # non-UTF-8 config raises; this runs at import, so escaping it means
+        # the app dies with a traceback and no window
         return dict(DEFAULT_CONFIG)
-    return data if isinstance(data, dict) else dict(DEFAULT_CONFIG)
+
+    cfg = dict(DEFAULT_CONFIG)
+    if not isinstance(data, dict):
+        return cfg
+    # values are used as an env var and a theme index, so type-check them too
+    if isinstance(data.get("lang"), str):
+        cfg["lang"] = data["lang"]
+    if isinstance(data.get("theme"), int) and data["theme"] in (0, 1, 2):
+        cfg["theme"] = int(data["theme"])
+    return cfg
 
 def save_config(cfg):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -98,6 +124,8 @@ def get_locale_dict():
             "interrupt_body": "Процесс записи образа все еще идет. Вы уверены, что хотите прервать его? Это приведет к неработоспособности накопителя до повторного форматирования",
             "interrupt_yes": "Да, прервать",
             "err_interrupted": "Прервано пользователем",
+            "stopping": "Остановка процесса записи...",
+            "err_kill_failed": "Не удалось остановить процесс записи — он может всё ещё писать на накопитель. Не извлекайте его.",
             "btn_restart": "Начать заново",
             "btn_close_app": "Закрыть программу",
             "btn_close_dialog": "Закрыть",
@@ -157,6 +185,8 @@ def get_locale_dict():
         "interrupt_body": "The image writing process is still ongoing. Are you sure you want to interrupt it? The drive will be unbootable.",
         "interrupt_yes": "Yes, interrupt",
         "err_interrupted": "Interrupted by user",
+        "stopping": "Stopping the flashing process...",
+        "err_kill_failed": "Could not stop the flashing process - it may still be writing to the drive. Do not unplug it.",
         "btn_restart": "Restart",
         "btn_close_app": "Close Program",
         "btn_close_dialog": "Close",
@@ -504,7 +534,9 @@ class LufuxWindow(Adw.ApplicationWindow):
                     )
                     return
             GLib.idle_add(self.on_deps_installed_success)
-        except OSError as e:
+        # background thread: an escaping exception would leave btn_next
+        # disabled with no dialog and no way out but restarting the app
+        except Exception as e:  # noqa: BLE001
             GLib.idle_add(self.show_deps_error, str(e))
 
     def on_deps_installed_success(self):
@@ -548,7 +580,16 @@ class LufuxWindow(Adw.ApplicationWindow):
             self.view_stack.set_visible_child_name("page_flash")
             self.flash_progress.set_fraction(0.0)
             self.is_flashing = True
-            threading.Thread(target=self.worker_thread, args=(self.iso_path, self.selected_dev), daemon=True).start()
+            # read the dropdowns here, on the main thread: GTK4 forbids widget
+            # access from anywhere else
+            os_idx = self.os_dropdown.get_selected()
+            scheme = "gpt" if self.scheme_dropdown.get_selected() == 0 else "mbr"
+            wtg = self.wtg_check.get_active()
+            threading.Thread(
+                target=self.worker_thread,
+                args=(self.iso_path, self.selected_dev, os_idx, scheme, wtg),
+                daemon=True,
+            ).start()
 
     # --- Window closing ---
 
@@ -566,23 +607,50 @@ class LufuxWindow(Adw.ApplicationWindow):
         response = dialog.choose_finish(result)
         if response == "yes":
             self.kill_worker()
-            self.show_interrupted_error()
 
     def kill_worker(self):
         self.is_flashing = False
-        # kill the root process by its tag
-        subprocess.run(  # nosec B603
-            [resolve_bin('pkexec'), 'pkill', '-f', WORKER_TAG],
-            stderr=subprocess.DEVNULL, check=False,
-        )
-        if self.proc:
+        proc = self.proc
+        pgid = None
+        if proc:
             try:
-                self.proc.kill()
+                pgid = os.getpgid(proc.pid)
+            except OSError:
+                pgid = None
+        # pkexec pops a polkit dialog, which would freeze the GTK main loop for
+        # as long as it is up, so do the kill on a thread and report after
+        self.append_log(T["stopping"])
+        threading.Thread(target=self.kill_worker_thread, args=(proc, pgid), daemon=True).start()
+
+    def kill_worker_thread(self, proc, pgid):
+        # WORKER_TAG only ever appears in the argv of the root bash, never in
+        # the argv of the dd/rsync/wimlib it spawns, so matching on it leaves
+        # them reparented and still writing to the device. The worker runs in
+        # its own session, so killing the group takes the children with it.
+        argv = [resolve_bin('pkexec'), 'pkill']
+        argv += ['-g', str(pgid)] if pgid is not None else ['-f', WORKER_TAG]
+        try:
+            code = subprocess.run(  # nosec B603
+                argv, stderr=subprocess.DEVNULL, check=False,
+            ).returncode
+        except OSError:
+            code = -1
+
+        # pkill: 0 = signalled, 1 = nothing matched (already gone).
+        # pkexec: 126 = authentication dismissed or denied, 127 = failed to run.
+        killed = code in (0, 1)
+
+        if proc:
+            try:
+                proc.kill()
             except (ProcessLookupError, OSError):
                 pass
 
-    def show_interrupted_error(self):
-        err_dialog = Adw.AlertDialog(heading="Ошибка", body=T["err_interrupted"])
+        GLib.idle_add(self.show_interrupted_error, killed)
+
+    def show_interrupted_error(self, killed=True):
+        body = T["err_interrupted"] if killed else T["err_kill_failed"]
+        err_dialog = Adw.AlertDialog(heading=T["err_crit"], body=body)
         err_dialog.add_response("close", T["btn_close_app"])
         err_dialog.add_response("restart", T["btn_restart"])
         err_dialog.set_response_appearance("close", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -681,10 +749,21 @@ class LufuxWindow(Adw.ApplicationWindow):
     def get_usb_drives(self):
         try:
             res = subprocess.run(  # nosec B603
-                [resolve_bin('lsblk'), '-I', '8', '-d', '-n', '-o', 'NAME,SIZE,MODEL'],
+                [resolve_bin('lsblk'), '-I', '8', '-d', '-n', '-o', 'NAME,RM,TRAN,SIZE,MODEL'],
                 capture_output=True, text=True, check=True,
             )
-            drives = [line.strip() for line in res.stdout.split('\n') if line.strip()]
+            # major 8 is every SCSI/SATA disk, so without this filter the
+            # internal system drive is offered up for wiping
+            drives = []
+            for line in res.stdout.split('\n'):
+                fields = line.split(None, 4)
+                if len(fields) < 4:
+                    continue
+                name, removable, transport, size = fields[:4]
+                model = fields[4].strip() if len(fields) > 4 else ""
+                if removable != "1" and transport != "usb":
+                    continue
+                drives.append(" ".join(x for x in (name, size, model) if x))
             return drives if drives else [T["no_drives"]]
         except (subprocess.SubprocessError, OSError):
             return [T["no_drives"]]
@@ -735,12 +814,8 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     # --- Worker ---
 
-    def worker_thread(self, iso, dev):
-        os_idx = self.os_dropdown.get_selected()
-        scheme_idx = self.scheme_dropdown.get_selected()
-        scheme = "gpt" if scheme_idx == 0 else "mbr"
-
-        if os_idx == 0 and self.wtg_check.get_active():
+    def worker_thread(self, iso, dev, os_idx, scheme, wtg):
+        if os_idx == 0 and wtg:
             script = get_windows_togo_script()
         elif os_idx == 0:
             script = get_windows_script(scheme)
@@ -754,6 +829,7 @@ class LufuxWindow(Adw.ApplicationWindow):
             self.proc = subprocess.Popen(  # nosec B603
                 [resolve_bin('pkexec'), 'bash', '-c', script, WORKER_TAG, iso, dev, scheme],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                start_new_session=True,
             )
 
             for line in iter(self.proc.stdout.readline, ''):
@@ -768,7 +844,9 @@ class LufuxWindow(Adw.ApplicationWindow):
                     else:
                         GLib.idle_add(self.append_log, f"[*] {msg}")
                 else:
-                    match = re.search(r'([\d\.]+)%', line)
+                    # a loose [\d.]+ also matches "1.2.3" out of a version
+                    # string, and float() would then raise inside this thread
+                    match = re.search(r'(\d+(?:\.\d+)?)%', line)
                     if match:
                         pct = float(match.group(1)) / 100.0
                         GLib.idle_add(self.update_flash_progress, pct)
@@ -784,7 +862,9 @@ class LufuxWindow(Adw.ApplicationWindow):
                 elif self.proc.returncode != 0:
                     GLib.idle_add(self.append_log, f"{T['err_crit']} ({T['err_code']} {self.proc.returncode})")
                     self.is_flashing = False
-        except OSError as e:
+        # background thread: anything escaping here freezes the GUI at the
+        # last reported percentage with is_flashing still True
+        except Exception as e:  # noqa: BLE001
             GLib.idle_add(self.append_log, f"{T['err_crit']} {e}")
             self.is_flashing = False
 

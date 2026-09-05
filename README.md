@@ -8,10 +8,10 @@ A minimalist, universal, and functional GUI tool to create bootable USB drives o
 
 <p align="left">
   <a href="https://github.com/Advnirr/lufux/releases">
-    <img src="https://img.shields.io/github/v/release/Advnirr/lufux?style=flat-square&color=007EC6&v=1" alt="Release">
+    <img src="https://img.shields.io/badge/release-v1.2.0--stable-007EC6?style=flat-square" alt="Release">
   </a>
   <a href="https://github.com/Advnirr/lufux/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/Advnirr/lufux?style=flat-square&color=FF5722&v=1" alt="License">
+    <img src="https://img.shields.io/badge/license-GPL--3.0-FF5722?style=flat-square" alt="License">
   </a>
 </p>
 
@@ -57,6 +57,16 @@ cd lufux
 python main.py
 ```
 Note: Make sure you have the required system dependencies installed.
+
+## 💜 Support
+
+If Lufux helped you write a bootable drive, you can support continued development directly:
+
+**USDT** · TON network
+
+```
+UQDFela8stCZykNL2cLw2erPkzjAgSf-GLXoJuiTEmEckTNB
+```
 
 ## License
 This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See the [LICENSE](LICENSE) file for details.

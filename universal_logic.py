@@ -22,7 +22,9 @@ def get_linux_script():
     T = get_locale_dict()
 
     script = f"""#!/bin/bash
-set -e
+# pipefail matters: dd is the first stage of the progress pipeline below, and
+# without it a failed write is masked by the while-loop's exit status
+set -eo pipefail
 
 ISO_PATH="$1"
 DEV_PATH="$2"

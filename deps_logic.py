@@ -7,27 +7,45 @@ PKG_MAP = {
         "rsync": "rsync",
         "parted": "parted",
         "pkexec": "polkit",
-        "bsdtar": "libarchive"
+        "bsdtar": "libarchive",
+        "mkfs.vfat": "dosfstools",
+        "mkfs.ntfs": "ntfs-3g"
     },
     "debian": {
         "wimlib-imagex": "wimtools",
         "rsync": "rsync",
         "parted": "parted",
         "pkexec": "policykit-1",
-        "bsdtar": "libarchive-tools"
+        "bsdtar": "libarchive-tools",
+        "mkfs.vfat": "dosfstools",
+        "mkfs.ntfs": "ntfs-3g"
     },
     "fedora": {
         "wimlib-imagex": "wimlib-utils",
         "rsync": "rsync",
         "parted": "parted",
         "pkexec": "polkit",
-        "bsdtar": "bsdtar"
+        "bsdtar": "bsdtar",
+        "mkfs.vfat": "dosfstools",
+        "mkfs.ntfs": "ntfsprogs"
     }
 }
 
+# mkfs.*, parted and wipefs live in sbin, which is not on a normal user's PATH
+# on Debian, so shutil.which alone reports them missing when they are installed
+SEARCH_DIRS = ("/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/local/sbin")
+
+def _have_cmd(name):
+    if shutil.which(name):
+        return True
+    return any(os.access(os.path.join(d, name), os.X_OK) for d in SEARCH_DIRS)
+
 def check_dependencies():
-    required_cmds = ["wimlib-imagex", "rsync", "parted", "pkexec", "bsdtar"]
-    return [cmd for cmd in required_cmds if shutil.which(cmd) is None]
+    # mkfs.vfat (GPT path) and mkfs.ntfs (MBR path) are called by the Windows
+    # script after the drive is already wiped, so they must be caught up front
+    required_cmds = ["wimlib-imagex", "rsync", "parted", "pkexec", "bsdtar",
+                     "mkfs.vfat", "mkfs.ntfs"]
+    return [cmd for cmd in required_cmds if not _have_cmd(cmd)]
 
 def get_distro_info():
     distro_id = "unknown"

@@ -47,7 +47,7 @@ mkfs.ntfs -f -L "WINUSB" "${DEV_PATH}1"
 """
 
     script = f"""#!/bin/bash
-set -e
+set -eo pipefail
 
 ISO_PATH="$1"
 DEV_PATH="$2"
@@ -55,12 +55,30 @@ SCHEME="$3"
 
 ISO_MNT=$(mktemp -d /tmp/lufux_iso.XXXXXX)
 USB_MNT=$(mktemp -d /tmp/lufux_usb.XXXXXX)
-WORK_WIM=$(mktemp -u /tmp/lufux_wim.XXXXXX)
+# the exported WIM is >4 GB by construction, so it cannot live on /tmp, which
+# is a RAM-backed tmpfs on Arch and Fedora. mktemp -d (not -u) also closes the
+# TOCTOU window that a name-only temp path leaves open for a root writer.
+WORK_DIR=$(mktemp -d "${{TMPDIR:-/var/tmp}}/lufux_wim.XXXXXX")
+WORK_WIM="$WORK_DIR/install.wim"
 
 cleanup() {{
-    umount "$ISO_MNT" "$USB_MNT" 2>/dev/null || true
-    rmdir "$ISO_MNT" "$USB_MNT" 2>/dev/null || true
-    rm -f "$WORK_WIM" 2>/dev/null || true
+    trap - EXIT
+    set +e
+    # this trap also fires when the GUI cancels the flash, and bash's children
+    # outlive bash. Unmounting while rsync/cp still holds a write fd either
+    # fails with EBUSY (leaking the mktemp dir) or loses the FAT32/NTFS
+    # metadata, so take the children down and wait for them to actually go.
+    pkill -P $$ 2>/dev/null
+    i=0
+    while [ $i -lt 50 ] && pgrep -P $$ >/dev/null 2>&1; do
+        sleep 0.1
+        i=$((i+1))
+    done
+    pkill -9 -P $$ 2>/dev/null
+    sync
+    umount "$ISO_MNT" "$USB_MNT" 2>/dev/null
+    rmdir "$ISO_MNT" "$USB_MNT" 2>/dev/null
+    rm -rf "$WORK_DIR" 2>/dev/null
 }}
 trap cleanup EXIT
 
@@ -102,6 +120,15 @@ if [ -n "$TF" ]; then
         if [ $RES -eq 68 ]; then
             echo "STATUS: {T['conv_lzx']}"
             rm -f "$WORK_WIM" "$USB_MNT/sources/install.swm" 2>/dev/null || true
+
+            # fail loudly here rather than filling the filesystem (or RAM) and
+            # dying on an already-wiped drive
+            AVAIL=$(df -P -B1 "$WORK_DIR" | awk 'NR==2 {{print $4}}')
+            if [ "$AVAIL" -lt "$FS" ]; then
+                echo "Not enough free space in $WORK_DIR: need $FS bytes, have $AVAIL" >&2
+                exit 1
+            fi
+
             wimlib-imagex export "$TF" all "$WORK_WIM" --compress=maximum 2>&1
 
             echo "STATUS: {T['split_wim']}"
@@ -115,6 +142,24 @@ fi
 
 echo "STATUS: {T['sync']}"
 sync
+
+# unmount before reporting success: the GUI reveals the Done button the moment
+# it sees DONE, and a user pulling the stick then must not lose metadata
+UMOUNTED=0
+i=0
+while [ $i -lt 5 ]; do
+    if umount "$USB_MNT" 2>/dev/null; then
+        UMOUNTED=1
+        break
+    fi
+    sleep 1
+    i=$((i+1))
+done
+if [ "$UMOUNTED" -ne 1 ]; then
+    echo "Failed to unmount $USB_MNT" >&2
+    exit 1
+fi
+umount "$ISO_MNT" 2>/dev/null || true
 
 echo "STATUS: DONE"
 """
