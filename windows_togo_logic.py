@@ -165,7 +165,9 @@ if ! python3 {bcd_logic} "$DEV_PATH" 2 "$EFI_MNT/EFI/Microsoft/Boot/BCD"; then
 fi
 
 echo "STATUS: {T['sync']}"
-sync
+# only these two filesystems: a bare sync waits on every device the machine has,
+# and one slow USB stick elsewhere can hold it for many minutes
+sync -f "$WIN_MNT" "$EFI_MNT"
 
 # unmount before reporting success: the GUI reveals the Done button the moment
 # it sees DONE, and a user pulling the stick then must not lose metadata
