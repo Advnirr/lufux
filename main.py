@@ -578,7 +578,7 @@ class LufuxWindow(Adw.ApplicationWindow):
             self.current_step = 3
             self.nav_box.set_visible(False)
             self.view_stack.set_visible_child_name("page_flash")
-            self.flash_progress.set_fraction(0.0)
+            self.update_flash_progress(0.0)
             self.is_flashing = True
             # read the dropdowns here, on the main thread: GTK4 forbids widget
             # access from anywhere else
@@ -662,7 +662,7 @@ class LufuxWindow(Adw.ApplicationWindow):
             self.close()
         elif resp == "restart":
             self.current_step = 0
-            self.flash_progress.set_fraction(0)
+            self.update_flash_progress(0.0)
             self.flash_progress.set_visible(True)
             self.btn_done.set_visible(False)
             self.nav_box.set_visible(True)
@@ -842,6 +842,11 @@ class LufuxWindow(Adw.ApplicationWindow):
                     if msg == "DONE":
                         GLib.idle_add(self.on_flash_success)
                     else:
+                        # each command counts its own phase from zero, so drop
+                        # the previous one's percentage here: otherwise mkntfs
+                        # finishing at 100% leaves the bar full for the twenty
+                        # minutes before wimlib prints a percentage of its own
+                        GLib.idle_add(self.update_flash_progress, 0.0, msg)
                         GLib.idle_add(self.append_log, f"[*] {msg}")
                 else:
                     # a loose [\d.]+ also matches "1.2.3" out of a version
@@ -849,7 +854,12 @@ class LufuxWindow(Adw.ApplicationWindow):
                     match = re.search(r'(\d+(?:\.\d+)?)%', line)
                     if match:
                         pct = float(match.group(1)) / 100.0
-                        GLib.idle_add(self.update_flash_progress, pct)
+                        # percentage lines never reach the log, so on a long
+                        # deployment the bar is the only thing moving; label it
+                        # with what is being counted ("Extracting file data:
+                        # 3 GiB of 11 GiB") rather than a bare number
+                        GLib.idle_add(self.update_flash_progress, pct,
+                                      line.split(" (")[0].strip() or None)
                     elif line:
                         GLib.idle_add(self.append_log, f"> {line}")
 
@@ -876,8 +886,10 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.flash_progress.set_visible(False)
         self.btn_done.set_visible(True)
 
-    def update_flash_progress(self, fraction):
+    def update_flash_progress(self, fraction, label=None):
         self.flash_progress.set_fraction(fraction)
+        # None restores the built-in percentage text
+        self.flash_progress.set_text(label)
 
 
 class LufuxApp(Adw.Application):
