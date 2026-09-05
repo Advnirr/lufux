@@ -274,8 +274,18 @@ def build_bcd(partition_guid, disk_guid, description="Windows To Go", timeout=30
         ]),
     ]
 
-    desc = w.key("Description", sk,
-                 values=[w.value("KeyName", REG_SZ, _sz("BCD"))])
+    # KeyName is the registry key the store gets mounted under; BCD00000000 is
+    # the system store's. System marks the store as the system store, and is
+    # what sysprep's specialize pass looks for: spbcd.dll reads
+    # Description\System, writes Description\TreatAsSystem=1 next to it when it
+    # is set, and then requires both to be non-zero. Without System the pass
+    # fails with "File is not system store" (0xc0000098), which surfaces on the
+    # drive's first boot as "Windows Setup could not configure Windows to run on
+    # this computer's hardware" - long after the boot chain itself has worked.
+    desc = w.key("Description", sk, values=[
+        w.value("KeyName", REG_SZ, _sz("BCD00000000")),
+        w.value("System", REG_DWORD, struct.pack("<I", 1)),
+    ])
     root = w.key("System", sk,
                  subkeys=[desc, w.key("Objects", sk, subkeys=objects)], root=True)
     return w.serialise(root[0])
