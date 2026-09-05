@@ -7,7 +7,6 @@ PKG_MAP = {
         "rsync": "rsync",
         "parted": "parted",
         "pkexec": "polkit",
-        "bsdtar": "libarchive",
         "mkfs.vfat": "dosfstools",
         "mkfs.ntfs": "ntfs-3g"
     },
@@ -16,7 +15,6 @@ PKG_MAP = {
         "rsync": "rsync",
         "parted": "parted",
         "pkexec": "policykit-1",
-        "bsdtar": "libarchive-tools",
         "mkfs.vfat": "dosfstools",
         "mkfs.ntfs": "ntfs-3g"
     },
@@ -25,7 +23,6 @@ PKG_MAP = {
         "rsync": "rsync",
         "parted": "parted",
         "pkexec": "polkit",
-        "bsdtar": "bsdtar",
         "mkfs.vfat": "dosfstools",
         "mkfs.ntfs": "ntfsprogs"
     }
@@ -43,7 +40,7 @@ def _have_cmd(name):
 def check_dependencies():
     # mkfs.vfat (GPT path) and mkfs.ntfs (MBR path) are called by the Windows
     # script after the drive is already wiped, so they must be caught up front
-    required_cmds = ["wimlib-imagex", "rsync", "parted", "pkexec", "bsdtar",
+    required_cmds = ["wimlib-imagex", "rsync", "parted", "pkexec",
                      "mkfs.vfat", "mkfs.ntfs"]
     return [cmd for cmd in required_cmds if not _have_cmd(cmd)]
 

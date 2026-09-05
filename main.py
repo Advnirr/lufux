@@ -69,6 +69,7 @@ from gi.repository import Gtk, Adw, GLib, Gio, Gdk
 
 # importing logic
 from windows_logic import get_windows_script
+from windows_togo_logic import get_windows_togo_script
 from universal_logic import get_linux_script
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
 
@@ -104,6 +105,8 @@ def get_locale_dict():
             "partition_scheme": "Схема разделов (для Windows):",
             "scheme_gpt": "GPT (UEFI / FAT32)",
             "scheme_mbr": "MBR (Legacy BIOS / NTFS)",
+            "wtg_mode": "Windows To Go (запускаемая Windows на USB)",
+            "wtg_summary": "Windows To Go (GPT / UEFI)",
             "summary_drive": "Целевой накопитель",
             "summary_iso": "Выбранный образ",
             "summary_os": "Определенная система",
@@ -163,6 +166,8 @@ def get_locale_dict():
         "partition_scheme": "Partition Scheme (for Windows):",
         "scheme_gpt": "GPT (UEFI / FAT32)",
         "scheme_mbr": "MBR (Legacy BIOS / NTFS)",
+        "wtg_mode": "Windows To Go (bootable Windows on USB)",
+        "wtg_summary": "Windows To Go (GPT / UEFI)",
         "summary_drive": "Target Drive",
         "summary_iso": "Selected ISO",
         "summary_os": "Detected OS",
@@ -330,9 +335,16 @@ class LufuxWindow(Adw.ApplicationWindow):
         box.append(self.scheme_label)
         
         self.scheme_dropdown = Gtk.DropDown.new_from_strings([T["scheme_gpt"], T["scheme_mbr"]])
-        self.scheme_dropdown.set_visible(False) 
+        self.scheme_dropdown.set_visible(False)
         self.scheme_dropdown.set_size_request(280, -1)
         box.append(self.scheme_dropdown)
+
+        # Windows To Go: deploy a runnable Windows instead of installer media.
+        # Forces GPT/UEFI, so the scheme selector is hidden while it is on.
+        self.wtg_check = Gtk.CheckButton(label=T["wtg_mode"])
+        self.wtg_check.set_visible(False)
+        self.wtg_check.connect("toggled", self.on_wtg_toggled)
+        box.append(self.wtg_check)
 
         self.os_dropdown.connect("notify::selected", self.on_os_changed)
 
@@ -340,8 +352,16 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def on_os_changed(self, dropdown, param):
         is_windows = dropdown.get_selected() == 0
-        self.scheme_label.set_visible(is_windows)
-        self.scheme_dropdown.set_visible(is_windows)
+        self.wtg_check.set_visible(is_windows)
+        wtg = is_windows and self.wtg_check.get_active()
+        self.scheme_label.set_visible(is_windows and not wtg)
+        self.scheme_dropdown.set_visible(is_windows and not wtg)
+
+    def on_wtg_toggled(self, check):
+        # Windows To Go is always GPT/UEFI, so hide the scheme picker
+        wtg = check.get_active()
+        self.scheme_label.set_visible(not wtg)
+        self.scheme_dropdown.set_visible(not wtg)
 
     def setup_page_summary(self):
         page = Adw.StatusPage(title=T["step_summary"], icon_name="emblem-system-symbolic")
@@ -449,7 +469,9 @@ class LufuxWindow(Adw.ApplicationWindow):
         os_text = T["os_win"] if os_idx == 0 else T["os_lin"] if os_idx == 1 else T["os_other"]
         self.sum_os.set_subtitle(os_text)
         
-        if os_idx == 0:
+        if os_idx == 0 and self.wtg_check.get_active():
+            self.sum_scheme.set_subtitle(T["wtg_summary"])
+        elif os_idx == 0:
             scheme_idx = self.scheme_dropdown.get_selected()
             scheme_text = T["scheme_gpt"] if scheme_idx == 0 else T["scheme_mbr"]
             self.sum_scheme.set_subtitle(scheme_text)
@@ -556,15 +578,16 @@ class LufuxWindow(Adw.ApplicationWindow):
             self.current_step = 3
             self.nav_box.set_visible(False)
             self.view_stack.set_visible_child_name("page_flash")
-            self.flash_progress.set_fraction(0.0)
+            self.update_flash_progress(0.0)
             self.is_flashing = True
             # read the dropdowns here, on the main thread: GTK4 forbids widget
             # access from anywhere else
             os_idx = self.os_dropdown.get_selected()
             scheme = "gpt" if self.scheme_dropdown.get_selected() == 0 else "mbr"
+            wtg = self.wtg_check.get_active()
             threading.Thread(
                 target=self.worker_thread,
-                args=(self.iso_path, self.selected_dev, os_idx, scheme),
+                args=(self.iso_path, self.selected_dev, os_idx, scheme, wtg),
                 daemon=True,
             ).start()
 
@@ -639,7 +662,7 @@ class LufuxWindow(Adw.ApplicationWindow):
             self.close()
         elif resp == "restart":
             self.current_step = 0
-            self.flash_progress.set_fraction(0)
+            self.update_flash_progress(0.0)
             self.flash_progress.set_visible(True)
             self.btn_done.set_visible(False)
             self.nav_box.set_visible(True)
@@ -753,6 +776,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         f_iso.add_pattern("*.iso")
         filters = Gio.ListStore.new(Gtk.FileFilter)
         filters.append(f_iso)
+        dialog.set_filters(filters)
+        dialog.set_default_filter(f_iso)
         dialog.open(self, None, self.on_file_selected)
 
     def on_file_selected(self, dialog, result):
@@ -766,21 +791,58 @@ class LufuxWindow(Adw.ApplicationWindow):
         except GLib.Error:
             pass
 
-    def analyze_iso(self):
+    # A current Windows ISO keeps its real tree in a UDF filesystem and leaves
+    # only a README on the ISO9660 side, and libarchive cannot read UDF at all -
+    # so listing one with bsdtar returned two entries and every Windows image
+    # was detected as "Other". Match the raw image instead. ISO9660 records hold
+    # names as plain bytes and UDF holds them as UTF-16BE, and UDF stores each
+    # path component in its own record, so the markers are single components.
+    ISO_WINDOWS = ('install.wim', 'install.esd', 'boot.wim', 'bootmgr.efi')
+    ISO_LINUX = ('isolinux', 'casper', 'vmlinuz', 'initrd.img', 'grub.cfg')
+    # Names live in the volume metadata, which sits near the front of the image
+    # (630 KB in on the ISO this was built against). A match usually lands in
+    # the first chunk; this bound is what an unrecognised image costs.
+    ISO_SCAN = 64 << 20
+    ISO_CHUNK = 4 << 20
+
+    @staticmethod
+    def _iso_views(buf):
+        """The chunk as lowercased text, in each encoding a name can be in.
+
+        UTF-16BE is decoded at both alignments: nothing promises the records
+        begin on an even offset within the chunk.
+        """
+        yield buf.decode('latin-1').lower()
+        for start in (0, 1):
+            body = buf[start:]
+            yield body[:len(body) & ~1].decode('utf-16-be', 'ignore').lower()
+
+    def _iso_has(self, markers):
         try:
-            res = subprocess.run(  # nosec B603
-                [resolve_bin('bsdtar'), '-tf', self.iso_path],
-                capture_output=True, text=True, timeout=3, check=False,
-            )
-            files = res.stdout.lower()
-            
-            if any(x in files for x in ['sources/install.wim', 'sources/install.esd', 'sources/boot.wim', 'bootmgr']):
-                self.os_dropdown.set_selected(0)
-            elif any(x in files for x in ['isolinux', 'casper', 'arch/', 'vmlinuz', 'live/', 'boot/grub/']):
-                self.os_dropdown.set_selected(1)
-            else:
-                self.os_dropdown.set_selected(2)
-        except (subprocess.SubprocessError, OSError):
+            with open(self.iso_path, 'rb') as f:
+                carry = b''
+                read = 0
+                while read < self.ISO_SCAN:
+                    buf = f.read(self.ISO_CHUNK)
+                    if not buf:
+                        break
+                    read += len(buf)
+                    window = carry + buf
+                    for text in self._iso_views(window):
+                        if any(m in text for m in markers):
+                            return True
+                    # a name can straddle two chunks
+                    carry = window[-64:]
+        except OSError:
+            return False
+        return False
+
+    def analyze_iso(self):
+        if self._iso_has(self.ISO_WINDOWS):
+            self.os_dropdown.set_selected(0)
+        elif self._iso_has(self.ISO_LINUX):
+            self.os_dropdown.set_selected(1)
+        else:
             self.os_dropdown.set_selected(2)
 
     def append_log(self, msg):
@@ -791,8 +853,10 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     # --- Worker ---
 
-    def worker_thread(self, iso, dev, os_idx, scheme):
-        if os_idx == 0:
+    def worker_thread(self, iso, dev, os_idx, scheme, wtg):
+        if os_idx == 0 and wtg:
+            script = get_windows_togo_script()
+        elif os_idx == 0:
             script = get_windows_script(scheme)
         else:
             script = get_linux_script()
@@ -817,6 +881,11 @@ class LufuxWindow(Adw.ApplicationWindow):
                     if msg == "DONE":
                         GLib.idle_add(self.on_flash_success)
                     else:
+                        # each command counts its own phase from zero, so drop
+                        # the previous one's percentage here: otherwise mkntfs
+                        # finishing at 100% leaves the bar full for the twenty
+                        # minutes before wimlib prints a percentage of its own
+                        GLib.idle_add(self.update_flash_progress, 0.0, msg)
                         GLib.idle_add(self.append_log, f"[*] {msg}")
                 else:
                     # a loose [\d.]+ also matches "1.2.3" out of a version
@@ -824,7 +893,12 @@ class LufuxWindow(Adw.ApplicationWindow):
                     match = re.search(r'(\d+(?:\.\d+)?)%', line)
                     if match:
                         pct = float(match.group(1)) / 100.0
-                        GLib.idle_add(self.update_flash_progress, pct)
+                        # percentage lines never reach the log, so on a long
+                        # deployment the bar is the only thing moving; label it
+                        # with what is being counted ("Extracting file data:
+                        # 3 GiB of 11 GiB") rather than a bare number
+                        GLib.idle_add(self.update_flash_progress, pct,
+                                      line.split(" (")[0].strip() or None)
                     elif line:
                         GLib.idle_add(self.append_log, f"> {line}")
 
@@ -851,8 +925,10 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.flash_progress.set_visible(False)
         self.btn_done.set_visible(True)
 
-    def update_flash_progress(self, fraction):
+    def update_flash_progress(self, fraction, label=None):
         self.flash_progress.set_fraction(fraction)
+        # None restores the built-in percentage text
+        self.flash_progress.set_text(label)
 
 
 class LufuxApp(Adw.Application):
