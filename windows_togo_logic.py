@@ -12,6 +12,7 @@ def get_locale_dict():
             "no_image": "В образе не найден install.wim/install.esd",
             "no_index": "Выбранной редакции нет в образе",
             "no_bootmgr": "В развёрнутой системе не найден bootmgfw.efi",
+            "busy": "Накопитель занят: закройте окна файлового менеджера, открытые на нём",
             "apply": "Развёртывание Windows на накопитель (это надолго)...",
             "boot": "Установка загрузчика UEFI...",
             "bcd": "Создание загрузочного хранилища BCD...",
@@ -25,6 +26,7 @@ def get_locale_dict():
         "no_image": "install.wim/install.esd not found in the image",
         "no_index": "The selected edition is not present in the image",
         "no_bootmgr": "bootmgfw.efi not found in the deployed system",
+        "busy": "The drive is busy: close any file manager window showing it",
         "apply": "Deploying Windows to the drive (this takes a while)...",
         "boot": "Installing the UEFI bootloader...",
         "bcd": "Writing the BCD boot store...",
@@ -76,8 +78,21 @@ cleanup() {{
 }}
 trap cleanup EXIT
 
+# udisks mounts a removable drive again the moment a filesystem appears on it,
+# so a single umount loses the race: wipefs then cannot open the disk, and worse,
+# wimlib would later write to an NTFS volume that is mounted behind our back.
+detach() {{
+    for _ in 1 2 3 4 5; do
+        umount "$DEV_PATH"* 2>/dev/null
+        findmnt -rno SOURCE | grep -q "^$DEV_PATH" || return 0
+        sleep 1
+    done
+    echo "STATUS: {T['busy']}"
+    return 1
+}}
+
 echo "STATUS: {T['prep']}"
-umount "$DEV_PATH"* 2>/dev/null || true
+detach || exit 1
 wipefs -a "$DEV_PATH"
 
 echo "STATUS: {T['part']}"
@@ -112,6 +127,7 @@ echo "STATUS: {T['apply']}"
 # all of them ("Ignoring Windows NT security descriptors"), which is enough on
 # its own to leave the deployed Windows unbootable. See wimapply(1),
 # NTFS VOLUME EXTRACTION.
+detach || exit 1
 wimlib-imagex apply "$TF" "$IMG_INDEX" "${{DEV_PATH}}2" 2>&1
 
 echo "STATUS: {T['boot']}"
