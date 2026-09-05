@@ -76,7 +76,16 @@ cleanup() {{
     done
     pkill -9 -P $$ 2>/dev/null
     sync
-    umount "$ISO_MNT" "$USB_MNT" 2>/dev/null
+    # a child killed a moment ago can still hold the mount, and a single
+    # attempt then leaves it behind - that is how /tmp/lufux_* directories and
+    # their loop devices survive a cancelled flash
+    i=0
+    while [ $i -lt 10 ]; do
+        umount "$ISO_MNT" "$USB_MNT" 2>/dev/null
+        mountpoint -q "$ISO_MNT" || mountpoint -q "$USB_MNT" || break
+        sleep 0.5
+        i=$((i+1))
+    done
     rmdir "$ISO_MNT" "$USB_MNT" 2>/dev/null
     rm -rf "$WORK_DIR" 2>/dev/null
 }}

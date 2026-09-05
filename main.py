@@ -120,6 +120,12 @@ def get_locale_dict():
             "canceled": "Отменено пользователем",
             "err_crit": "Критическая ошибка:",
             "console_ready": "Инициализация... Ожидание старта.\n",
+            "stale_title": "Остатки прошлой записи",
+            "stale_body": "Прошлая запись не завершилась и оставила смонтированные каталоги. Они держат образ и loop-устройство занятыми. Убрать?",
+            "stale_yes": "Убрать",
+            "stale_no": "Оставить",
+            "stale_done": "Остатки убраны",
+            "stale_failed": "Не удалось убрать остатки",
             "interrupt_title": "Прервать прогресс записи?",
             "interrupt_body": "Процесс записи образа все еще идет. Вы уверены, что хотите прервать его? Это приведет к неработоспособности накопителя до повторного форматирования",
             "interrupt_yes": "Да, прервать",
@@ -181,6 +187,12 @@ def get_locale_dict():
         "canceled": "Canceled by user",
         "err_crit": "Critical Error:",
         "console_ready": "Initialization... Waiting to start.\n",
+        "stale_title": "Leftovers from an earlier flash",
+        "stale_body": "An earlier flash did not finish and left its mount points behind. They keep the ISO and a loop device busy. Clean them up?",
+        "stale_yes": "Clean up",
+        "stale_no": "Leave them",
+        "stale_done": "Leftovers cleaned up",
+        "stale_failed": "Could not clean up the leftovers",
         "interrupt_title": "Interrupt flashing progress?",
         "interrupt_body": "The image writing process is still ongoing. Are you sure you want to interrupt it? The drive will be unbootable.",
         "interrupt_yes": "Yes, interrupt",
@@ -283,6 +295,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.nav_box.append(self.btn_next)
 
         self.update_ui_state()
+        # after the window is up, so the dialog has something to attach to
+        GLib.idle_add(self.check_stale_leftovers)
 
         self.last_drives = []
         GLib.timeout_add_seconds(2, self.auto_refresh_drives)
@@ -590,6 +604,90 @@ class LufuxWindow(Adw.ApplicationWindow):
                 args=(self.iso_path, self.selected_dev, os_idx, scheme, wtg),
                 daemon=True,
             ).start()
+
+    # --- Leftovers from an earlier flash ---
+
+    # The scripts mount through mktemp -d, so every leftover has one of these
+    # prefixes followed by mktemp's six characters. Cleanup runs as root, so
+    # match the whole name and never a caller-supplied string.
+    STALE_MOUNT_RE = re.compile(r"^/tmp/lufux_(?:iso|usb|win|efi)\.[A-Za-z0-9]{6}$")
+
+    @staticmethod
+    def find_stale_mounts():
+        """Mount points left behind by a flash that did not finish."""
+        found = []
+        try:
+            with open("/proc/self/mountinfo", encoding="utf-8") as f:
+                for line in f:
+                    fields = line.split(" ")
+                    if len(fields) < 5:
+                        continue
+                    # mountinfo escapes spaces and the like as octal
+                    target = fields[4].encode().decode("unicode_escape")
+                    if LufuxWindow.STALE_MOUNT_RE.match(target):
+                        found.append(target)
+        except OSError:
+            return []
+        return sorted(set(found))
+
+    def worker_running(self):
+        try:
+            return subprocess.run(  # nosec B603
+                [resolve_bin('pgrep'), '-f', WORKER_TAG],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode == 0
+        except OSError:
+            return False
+
+    def check_stale_leftovers(self):
+        # a flash of our own still running owns these; only offer to clean up
+        # what nothing is using
+        if self.worker_running():
+            return False
+        self.stale_mounts = self.find_stale_mounts()
+        if not self.stale_mounts:
+            return False
+        body = T["stale_body"] + "\n\n" + "\n".join(self.stale_mounts)
+        dialog = Adw.AlertDialog(heading=T["stale_title"], body=body)
+        dialog.add_response("no", T["stale_no"])
+        dialog.add_response("yes", T["stale_yes"])
+        dialog.set_response_appearance("yes", Adw.ResponseAppearance.SUGGESTED)
+        dialog.choose(self, None, self.on_stale_response)
+        return False
+
+    def on_stale_response(self, dialog, result):
+        if dialog.choose_finish(result) != "yes":
+            return
+        # pkexec pops a polkit dialog, which would freeze the GTK main loop
+        threading.Thread(target=self.clean_stale_thread,
+                         args=(list(self.stale_mounts),), daemon=True).start()
+
+    def clean_stale_thread(self, mounts):
+        # re-validate here: this list is about to be handed to root
+        mounts = [m for m in mounts if self.STALE_MOUNT_RE.match(m)]
+        ok = False
+        if mounts:
+            # umount frees the loop device with it, mount(8) having set autoclear
+            # plain umount first: a lazy detach would also hide a mount that
+            # something is legitimately still using
+            script = ('for m in "$@"; do umount "$m" 2>/dev/null || '
+                      'umount -l "$m" 2>/dev/null; rmdir "$m" 2>/dev/null; done')
+            try:
+                ok = subprocess.run(  # nosec B603
+                    [resolve_bin('pkexec'), 'bash', '-c', script, 'lufux-cleanup', *mounts],
+                    stderr=subprocess.DEVNULL, check=False,
+                ).returncode == 0
+            except OSError:
+                ok = False
+        left = self.find_stale_mounts()
+        GLib.idle_add(self.show_stale_result, ok and not left)
+
+    def show_stale_result(self, ok):
+        dialog = Adw.AlertDialog(heading=T["stale_done"] if ok else T["stale_failed"], body="")
+        dialog.add_response("ok", T["btn_close_dialog"])
+        dialog.choose(self, None, lambda d, r: d.choose_finish(r))
+        return False
 
     # --- Window closing ---
 
