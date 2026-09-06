@@ -6,6 +6,7 @@ arch=('any')
 url="https://github.com/Advnirr/lufux"
 license=('GPL3')
 depends=('python-gobject' 'gtk4' 'libadwaita' 'wimlib' 'rsync' 'parted' 'polkit' 'dosfstools' 'ntfs-3g')
+optdepends=('udisks2: read the Windows edition list out of an ISO')
 makedepends=('git')
 source=("main.py" "windows_logic.py" "windows_togo_logic.py" "bcd_logic.py" "speed_logic.py" "universal_logic.py" "deps_logic.py" "lufux.desktop" "lufux.svg")
 sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')

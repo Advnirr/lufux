@@ -41,6 +41,70 @@ def resolve_bin(name):
                 break
     return path or name
 
+def list_iso_editions(iso_path):
+    """[(image index, name)] for the Windows images in an ISO, [] if unreadable.
+
+    Windows To Go deploys one image out of install.wim, and a retail ISO carries
+    several - Home, Pro, Education. Reading that list means reading the file,
+    and a current Windows ISO keeps its tree in UDF, so it has to be mounted;
+    udisksctl does that as the plain user, no root and no password. Where udisks
+    is missing the caller falls back to image 1, which is what Lufux deployed
+    unconditionally before.
+    """
+    dev = None
+    try:
+        setup = subprocess.run(  # nosec B603
+            [resolve_bin('udisksctl'), 'loop-setup', '-r', '-f', iso_path,
+             '--no-user-interaction'],
+            text=True, capture_output=True, check=False, timeout=30)
+        match = re.search(r'(/dev/loop\d+)', setup.stdout)
+        if not match:
+            return []
+        dev = match.group(1)
+        subprocess.run(  # nosec B603
+            [resolve_bin('udisksctl'), 'mount', '-b', dev, '--no-user-interaction'],
+            text=True, capture_output=True, check=False, timeout=60)
+        # udisksctl announces the mount point in the user's own language;
+        # findmnt answers the same question in a fixed format
+        target = subprocess.run(  # nosec B603
+            [resolve_bin('findmnt'), '-rno', 'TARGET', dev],
+            text=True, capture_output=True, check=False, timeout=10).stdout.split("\n")
+        if not target[0]:
+            return []
+        for name in ('install.wim', 'install.esd'):
+            image = os.path.join(target[0], 'sources', name)
+            if os.path.exists(image):
+                break
+        else:
+            return []
+        info = subprocess.run(  # nosec B603
+            [resolve_bin('wimlib-imagex'), 'info', image],
+            text=True, capture_output=True, check=False, timeout=120).stdout
+
+        editions = []
+        index = None
+        for line in info.splitlines():
+            # "Display Name:" is a different key and must not be picked up here
+            if line.startswith("Index:"):
+                index = line.split(":", 1)[1].strip()
+            elif line.startswith("Name:") and index is not None:
+                editions.append((int(index), line.split(":", 1)[1].strip()))
+                index = None
+        return editions
+    # a listing that fails costs the edition choice, never the flash
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+    finally:
+        if dev:
+            for args in (('unmount', '-b', dev), ('loop-delete', '-b', dev)):
+                try:
+                    subprocess.run(  # nosec B603
+                        [resolve_bin('udisksctl'), *args, '--no-user-interaction'],
+                        capture_output=True, check=False, timeout=30)
+                except (OSError, subprocess.SubprocessError):
+                    pass
+
+
 def load_config():
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -106,6 +170,8 @@ def get_locale_dict():
             "select_iso": "Выбрать ISO-образ",
             "iso_not_selected": "Образ не выбран",
             "os_type": "Тип ОС:",
+            "edition": "Редакция Windows:",
+            "edition_reading": "Чтение образа...",
             "os_win": "Windows",
             "os_lin": "Linux / Isohybrid",
             "os_other": "Неизвестно / Другое",
@@ -118,6 +184,7 @@ def get_locale_dict():
             "summary_iso": "Выбранный образ",
             "summary_os": "Определенная система",
             "summary_scheme": "Схема разметки",
+            "summary_edition": "Редакция",
             "nvme_lock": "Запись на NVMe заблокирована!",
             "warn1_title": "Внимание!",
             "warn1_body": "Все данные на накопителе\n<b>{dev}</b>\nбудут БЕЗВОЗВРАТНО УНИЧТОЖЕНЫ.\n\nПродолжить?",
@@ -188,6 +255,8 @@ def get_locale_dict():
         "select_iso": "Select ISO Image",
         "iso_not_selected": "No ISO selected",
         "os_type": "OS Type:",
+        "edition": "Windows edition:",
+        "edition_reading": "Reading the image...",
         "os_win": "Windows",
         "os_lin": "Linux / Isohybrid",
         "os_other": "Unknown / Other",
@@ -200,6 +269,7 @@ def get_locale_dict():
         "summary_iso": "Selected ISO",
         "summary_os": "Detected OS",
         "summary_scheme": "Partition Scheme",
+        "summary_edition": "Edition",
         "nvme_lock": "NVMe writing is disabled!",
         "warn1_title": "Warning!",
         "warn1_body": "All data on drive\n<b>{dev}</b>\nwill be PERMANENTLY DESTROYED.\n\nContinue?",
@@ -264,6 +334,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         
         self.iso_path = None
         self.selected_dev = None
+        # [(image index, name)] read out of the chosen ISO, empty until then
+        self.editions = []
         self.pages = ["page_drive", "page_iso", "page_summary", "page_flash"]
         self.current_step = 0
         
@@ -397,6 +469,17 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.wtg_check.connect("toggled", self.on_wtg_toggled)
         box.append(self.wtg_check)
 
+        # Which edition to deploy. Only Windows To Go picks a single image out
+        # of the ISO; installer media copies the whole file either way.
+        self.edition_label = Gtk.Label(label=T["edition"])
+        self.edition_label.set_visible(False)
+        box.append(self.edition_label)
+
+        self.edition_dropdown = Gtk.DropDown.new_from_strings([T["edition_reading"]])
+        self.edition_dropdown.set_visible(False)
+        self.edition_dropdown.set_size_request(280, -1)
+        box.append(self.edition_dropdown)
+
         self.os_dropdown.connect("notify::selected", self.on_os_changed)
 
         return page
@@ -407,12 +490,43 @@ class LufuxWindow(Adw.ApplicationWindow):
         wtg = is_windows and self.wtg_check.get_active()
         self.scheme_label.set_visible(is_windows and not wtg)
         self.scheme_dropdown.set_visible(is_windows and not wtg)
+        self.update_edition_visible()
 
     def on_wtg_toggled(self, check):
         # Windows To Go is always GPT/UEFI, so hide the scheme picker
         wtg = check.get_active()
         self.scheme_label.set_visible(not wtg)
         self.scheme_dropdown.set_visible(not wtg)
+        self.update_edition_visible()
+
+    def update_edition_visible(self):
+        # Nothing to choose from a single-edition image, and nothing to choose
+        # at all until the ISO has been read
+        wtg = self.os_dropdown.get_selected() == 0 and self.wtg_check.get_active()
+        show = wtg and len(self.editions) > 1
+        self.edition_label.set_visible(show)
+        self.edition_dropdown.set_visible(show)
+
+    def selected_img_index(self):
+        """The WIM image to deploy: the one picked, or the first if unknown."""
+        pos = self.edition_dropdown.get_selected()
+        if self.editions and 0 <= pos < len(self.editions):
+            return self.editions[pos][0]
+        return 1
+
+    def read_editions(self, iso):
+        editions = list_iso_editions(iso)
+        GLib.idle_add(self.apply_editions, iso, editions)
+
+    def apply_editions(self, iso, editions):
+        # a second ISO can be chosen while the first one is still being read
+        if iso != self.iso_path:
+            return
+        self.editions = editions
+        names = [name for _, name in editions] or [T["edition_reading"]]
+        self.edition_dropdown.set_model(Gtk.StringList.new(names))
+        self.edition_dropdown.set_selected(0)
+        self.update_edition_visible()
 
     def setup_page_summary(self):
         page = Adw.StatusPage(title=T["step_summary"], icon_name="emblem-system-symbolic")
@@ -427,11 +541,14 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.sum_iso = Adw.ActionRow(title=T["summary_iso"])
         self.sum_os = Adw.ActionRow(title=T["summary_os"])
         self.sum_scheme = Adw.ActionRow(title=T["summary_scheme"])
-        
+        self.sum_edition = Adw.ActionRow(title=T["summary_edition"])
+        self.sum_edition.set_visible(False)
+
         pref_group.add(self.sum_drive)
         pref_group.add(self.sum_iso)
         pref_group.add(self.sum_os)
         pref_group.add(self.sum_scheme)
+        pref_group.add(self.sum_edition)
         return page
 
     def setup_page_flash(self):
@@ -520,7 +637,15 @@ class LufuxWindow(Adw.ApplicationWindow):
         os_text = T["os_win"] if os_idx == 0 else T["os_lin"] if os_idx == 1 else T["os_other"]
         self.sum_os.set_subtitle(os_text)
         
-        if os_idx == 0 and self.wtg_check.get_active():
+        # a single-edition image never shows the picker, so the summary is the
+        # only place that says which Windows is about to be written
+        wtg = os_idx == 0 and self.wtg_check.get_active()
+        self.sum_edition.set_visible(wtg and bool(self.editions))
+        if wtg and self.editions:
+            self.sum_edition.set_subtitle(
+                dict(self.editions).get(self.selected_img_index(), ""))
+
+        if wtg:
             self.sum_scheme.set_subtitle(T["wtg_summary"])
         elif os_idx == 0:
             scheme_idx = self.scheme_dropdown.get_selected()
@@ -636,9 +761,10 @@ class LufuxWindow(Adw.ApplicationWindow):
             os_idx = self.os_dropdown.get_selected()
             scheme = "gpt" if self.scheme_dropdown.get_selected() == 0 else "mbr"
             wtg = self.wtg_check.get_active()
+            img_index = self.selected_img_index()
             threading.Thread(
                 target=self.worker_thread,
-                args=(self.iso_path, self.selected_dev, os_idx, scheme, wtg),
+                args=(self.iso_path, self.selected_dev, os_idx, scheme, wtg, img_index),
                 daemon=True,
             ).start()
 
@@ -922,6 +1048,10 @@ class LufuxWindow(Adw.ApplicationWindow):
                 self.iso_path = file.get_path()
                 self.iso_label.set_label(os.path.basename(self.iso_path))
                 self.analyze_iso()
+                self.editions = []
+                self.update_edition_visible()
+                threading.Thread(target=self.read_editions,
+                                 args=(self.iso_path,), daemon=True).start()
                 self.update_ui_state()
         except GLib.Error:
             pass
@@ -988,9 +1118,9 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     # --- Worker ---
 
-    def worker_thread(self, iso, dev, os_idx, scheme, wtg):
+    def worker_thread(self, iso, dev, os_idx, scheme, wtg, img_index=1):
         if os_idx == 0 and wtg:
-            script = get_windows_togo_script()
+            script = get_windows_togo_script(img_index)
         elif os_idx == 0:
             script = get_windows_script(scheme)
         else:

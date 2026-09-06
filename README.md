@@ -22,6 +22,7 @@ A minimalist, universal, and functional GUI tool to create bootable USB drives o
 * **Windows Support:** Automatically detects Windows ISOs and applies the correct partition scheme (GPT/FAT32 for UEFI, or MBR/NTFS for Legacy BIOS).
 * **Large WIM Handling:** Automatically detects solid `.esd` archives and `.wim` files larger than 4GB, splitting or converting them on the fly to bypass FAT32 limitations.
 * **Windows To Go:** Installs Windows onto the USB drive itself, so it boots as a full portable system rather than an installer. Writes a hand-built BCD store keyed to the drive's own GPT GUIDs, verified to reach OOBE from a real removable stick.
+* **Edition Choice:** A multi-edition ISO gets a list, so Windows To Go deploys the edition you pick instead of whichever one happens to come first.
 * **Drive Speed Check:** Measures sequential and 4 KB random writes before a Windows To Go deployment and warns you if the drive is too slow to run Windows from.
 * **Linux / Isohybrid Support:** Uses direct bit-for-bit block copying via `dd` for guaranteed bootability of Linux distributions.
 * **Native:** GTK4/Adwaita interface.
@@ -30,6 +31,8 @@ A minimalist, universal, and functional GUI tool to create bootable USB drives o
 
 To run Lufux, you need the following system packages:
 `python-gobject`, `gtk4`, `libadwaita`, `wimlib` (for wimlib-imagex), `rsync`, `parted`, `polkit` (for pkexec), `dosfstools` (for mkfs.vfat), `ntfs-3g` (for mkfs.ntfs).
+
+`udisks2` is optional. It is what lets Lufux read the edition list out of an ISO without asking for a password; without it, Windows To Go deploys the first edition in the image.
 
 ## 🚀 Installation
 
