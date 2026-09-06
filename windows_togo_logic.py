@@ -13,6 +13,8 @@ def get_locale_dict():
             "no_index": "Выбранной редакции нет в образе",
             "no_bootmgr": "В развёрнутой системе не найден bootmgfw.efi",
             "busy": "Накопитель занят: закройте окна файлового менеджера, открытые на нём",
+            "speed": "Замер скорости накопителя...",
+            "speed_abort": "Отменено: накопитель слишком медленный",
             "apply": "Развёртывание Windows на накопитель (это надолго)...",
             "boot": "Установка загрузчика UEFI...",
             "bcd": "Создание загрузочного хранилища BCD...",
@@ -27,6 +29,8 @@ def get_locale_dict():
         "no_index": "The selected edition is not present in the image",
         "no_bootmgr": "bootmgfw.efi not found in the deployed system",
         "busy": "The drive is busy: close any file manager window showing it",
+        "speed": "Measuring drive speed...",
+        "speed_abort": "Cancelled: the drive is too slow",
         "apply": "Deploying Windows to the drive (this takes a while)...",
         "boot": "Installing the UEFI bootloader...",
         "bcd": "Writing the BCD boot store...",
@@ -45,8 +49,9 @@ def get_windows_togo_script(img_index=1):
     idx = int(img_index)
     # bcd_logic.py ships beside this module, both in the repo and under
     # /usr/share/lufux; the script runs as root through pkexec and only reads it
-    bcd_logic = shlex.quote(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "bcd_logic.py"))
+    here = os.path.dirname(os.path.abspath(__file__))
+    bcd_logic = shlex.quote(os.path.join(here, "bcd_logic.py"))
+    speed_logic = shlex.quote(os.path.join(here, "speed_logic.py"))
 
     script = f"""#!/bin/bash
 set -eo pipefail
@@ -103,6 +108,27 @@ detach() {{
 echo "STATUS: {T['prep']}"
 detach || exit 1
 wipefs -a "$DEV_PATH"
+
+echo "STATUS: {T['speed']}"
+# Windows To Go runs *from* the drive, so a stick that is merely slow makes an
+# unusable system rather than a slow flash. Measure before spending hours
+# deploying onto it, and let the GUI put the numbers to the user. The test
+# writes to the raw device - hence after wipefs, so refusing here leaves the
+# drive empty instead of half-overwritten.
+SPEED=$(python3 {speed_logic} "$DEV_PATH" 2>/dev/null) || SPEED=""
+if [ -n "$SPEED" ]; then
+    echo "$SPEED"
+    # The GUI always answers, whether or not it asked the user; the timeout is
+    # only there so a GUI that died cannot leave this root shell waiting for a
+    # line that will never come.
+    if ! read -r -t 600 ANSWER; then
+        ANSWER="abort"
+    fi
+    if [ "$ANSWER" != "continue" ]; then
+        echo "STATUS: {T['speed_abort']}"
+        exit 1
+    fi
+fi
 
 # sd* names partitions by appending a number, but a device whose own name ends
 # in a digit - nvme0n1, mmcblk0, loop0 - separates them with a "p"

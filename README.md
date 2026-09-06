@@ -22,6 +22,7 @@ A minimalist, universal, and functional GUI tool to create bootable USB drives o
 * **Windows Support:** Automatically detects Windows ISOs and applies the correct partition scheme (GPT/FAT32 for UEFI, or MBR/NTFS for Legacy BIOS).
 * **Large WIM Handling:** Automatically detects solid `.esd` archives and `.wim` files larger than 4GB, splitting or converting them on the fly to bypass FAT32 limitations.
 * **Windows To Go:** Installs Windows onto the USB drive itself, so it boots as a full portable system rather than an installer. Writes a hand-built BCD store keyed to the drive's own GPT GUIDs, verified to reach OOBE from a real removable stick.
+* **Drive Speed Check:** Before a Windows To Go deployment the drive's sequential and 4 KB random write rates are measured. Windows To Go *runs* from the drive, so a stick that is merely slow makes an unusable system rather than a slow flash; Lufux reports the measured numbers and offers to cancel before the hours a deployment takes.
 * **Linux / Isohybrid Support:** Uses direct bit-for-bit block copying via `dd` for guaranteed bootability of Linux distributions.
 * **Native:** GTK4/Adwaita interface.
 

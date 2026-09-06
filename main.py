@@ -15,6 +15,13 @@ WORKER_TAG = "lufux-flash-worker"
 
 DEFAULT_CONFIG = {"theme": 0, "lang": ""}
 
+# What a drive has to manage before Windows To Go is worth deploying onto it.
+# The random figure is the one that decides: a stick doing 8 MB/s sequentially
+# and a few dozen 4 KiB writes a second produced a system that spent 3.5 hours
+# on its first boot and reported a 5 842 183 ms average disk response.
+WTG_MIN_SEQ_MBPS = 15.0
+WTG_MIN_RAND_IOPS = 100
+
 # resolving through $PATH would be no better than handing subprocess a bare
 # name, since $PATH is user-controlled; only these locations are trusted.
 TRUSTED_BIN_DIRS = ("/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/local/sbin")
@@ -147,6 +154,23 @@ def get_locale_dict():
             "dep_missing_body": "Для записи требуются системные пакеты:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nУстановить их сейчас?",
             "dep_unsupported": "Не хватает пакетов: <b>{deps}</b>\nПожалуйста, установите их вручную через пакетный менеджер.",
             "btn_install": "Установить",
+            "speed_title": "Накопитель слишком медленный",
+            "speed_body": (
+                "Замер накопителя:\n"
+                "• последовательная запись — <b>{seq} МБ/с</b>\n"
+                "• случайная запись 4 КБ — <b>{iops} операций/с</b>\n\n"
+                "Для приемлемой работы Windows To Go нужно хотя бы "
+                "{min_seq} МБ/с и {min_iops} операций/с. Windows не просто "
+                "лежит на этом накопителе, она с него работает: на таком "
+                "загрузка займёт часы, а система будет замирать при каждом "
+                "обращении к диску.\n\n"
+                "Развёртывание всё равно займёт несколько часов. "
+                "Накопитель уже очищен — отмена оставит его пустым."
+            ),
+            "speed_ok": "Скорость накопителя: {seq} МБ/с, {iops} операций/с — достаточно",
+            "speed_slow": "Скорость накопителя: {seq} МБ/с, {iops} операций/с — ниже нормы",
+            "btn_continue_anyway": "Всё равно продолжить",
+            "speed_canceled": "Запись отменена: накопитель не проходит по скорости",
             "err_code": "Код:"
         }
     return {
@@ -214,6 +238,22 @@ def get_locale_dict():
         "dep_missing_body": "The following system packages are required:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nInstall them now?",
         "dep_unsupported": "Missing packages: <b>{deps}</b>\nPlease install them manually using your package manager.",
         "btn_install": "Install",
+        "speed_title": "This drive is too slow",
+        "speed_body": (
+            "Measured on this drive:\n"
+            "• sequential write — <b>{seq} MB/s</b>\n"
+            "• random 4 KB write — <b>{iops} ops/s</b>\n\n"
+            "Windows To Go needs at least {min_seq} MB/s and {min_iops} ops/s "
+            "to be usable. Windows does not merely sit on this drive, it runs "
+            "from it: booting will take hours and the system will freeze on "
+            "every disk access.\n\n"
+            "Deploying will take several hours regardless. "
+            "The drive has already been erased — cancelling leaves it empty."
+        ),
+        "speed_ok": "Drive speed: {seq} MB/s, {iops} ops/s — good enough",
+        "speed_slow": "Drive speed: {seq} MB/s, {iops} ops/s — below the bar",
+        "btn_continue_anyway": "Continue anyway",
+        "speed_canceled": "Flashing cancelled: the drive is too slow",
         "err_code": "Code:"
     }
 
@@ -965,7 +1005,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         try:
             self.proc = subprocess.Popen(  # nosec B603
                 [resolve_bin('pkexec'), 'bash', '-c', script, WORKER_TAG, iso, dev, scheme],
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, text=True,
                 start_new_session=True,
             )
 
@@ -985,6 +1026,10 @@ class LufuxWindow(Adw.ApplicationWindow):
                         # minutes before wimlib prints a percentage of its own
                         GLib.idle_add(self.update_flash_progress, 0.0, msg)
                         GLib.idle_add(self.append_log, f"[*] {msg}")
+                elif line.startswith("SPEEDTEST:"):
+                    # the worker is now blocked reading its stdin: it deploys
+                    # or gives up on whatever answer goes back
+                    GLib.idle_add(self.on_speedtest, line)
                 else:
                     # a loose [\d.]+ also matches "1.2.3" out of a version
                     # string, and float() would then raise inside this thread
@@ -1014,6 +1059,65 @@ class LufuxWindow(Adw.ApplicationWindow):
         except Exception as e:  # noqa: BLE001
             GLib.idle_add(self.append_log, f"{T['err_crit']} {e}")
             self.is_flashing = False
+
+    # --- Drive speed gate (Windows To Go only) ---
+
+    def answer_speedtest(self, answer):
+        """Unblock the worker's `read`. Runs on the main thread, as does the
+        dialog that calls it, so the two cannot answer twice."""
+        try:
+            self.proc.stdin.write(answer + "\n")
+            self.proc.stdin.flush()
+        # the worker has a timeout on that read and dies on its own, so a
+        # worker that is already gone needs nothing more from us here
+        except (OSError, ValueError, AttributeError):
+            pass
+
+    def on_speedtest(self, line):
+        try:
+            _, seq_s, iops_s = line.split()
+            seq, iops = float(seq_s), float(iops_s)
+        # an unreadable measurement must not cost the user a flash
+        except ValueError:
+            self.answer_speedtest("continue")
+            return
+
+        numbers = {"seq": f"{seq:.1f}", "iops": f"{iops:.0f}"}
+        if seq >= WTG_MIN_SEQ_MBPS and iops >= WTG_MIN_RAND_IOPS:
+            self.append_log("[*] " + T["speed_ok"].format(**numbers))
+            self.answer_speedtest("continue")
+            return
+
+        self.append_log("[*] " + T["speed_slow"].format(**numbers))
+        dialog = Adw.AlertDialog(
+            heading=T["speed_title"],
+            body=T["speed_body"].format(
+                min_seq=f"{WTG_MIN_SEQ_MBPS:.0f}",
+                min_iops=WTG_MIN_RAND_IOPS,
+                **numbers,
+            ),
+        )
+        dialog.set_body_use_markup(True)
+        dialog.add_response("cancel", T["btn_cancel"])
+        dialog.add_response("continue", T["btn_continue_anyway"])
+        dialog.set_response_appearance("continue", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.choose(self, None, self.on_speedtest_response)
+
+    def on_speedtest_response(self, dialog, result):
+        if dialog.choose_finish(result) == "continue":
+            self.answer_speedtest("continue")
+            return
+
+        # is_flashing goes down first: the worker exits on this answer, and the
+        # reader thread must treat that as the chosen ending, not a failure
+        self.is_flashing = False
+        self.answer_speedtest("abort")
+        self.append_log(T["speed_canceled"])
+        self.update_flash_progress(0.0)
+        canceled = Adw.AlertDialog(heading=T["speed_title"], body=T["speed_canceled"])
+        canceled.add_response("close", T["btn_close_app"])
+        canceled.add_response("restart", T["btn_restart"])
+        canceled.choose(self, None, self.on_error_response)
 
     def on_flash_success(self):
         self.is_flashing = False
