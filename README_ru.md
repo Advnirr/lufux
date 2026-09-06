@@ -8,7 +8,7 @@
 
 <p align="left">
   <a href="https://github.com/Advnirr/lufux/releases">
-    <img src="https://img.shields.io/badge/release-v1.3.5--stable-007EC6?style=flat-square" alt="Release">
+    <img src="https://img.shields.io/badge/release-v1.3.6--stable-007EC6?style=flat-square" alt="Release">
   </a>
   <a href="https://github.com/Advnirr/lufux/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-GPL--3.0-FF5722?style=flat-square" alt="License">

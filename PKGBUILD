@@ -1,5 +1,5 @@
 pkgname=lufux-git
-pkgver=1.3.5
+pkgver=1.3.6
 pkgrel=1
 pkgdesc="Minimalist GUI tool to create bootable USB drives"
 arch=('any')
