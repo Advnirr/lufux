@@ -1,0 +1,81 @@
+name: Bug report
+description: Something went wrong while writing a drive, or the app itself misbehaved.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English or Russian, either is fine.
+
+        If a deployed Windows To Go does not boot, use the **Windows To Go does not boot** template instead - that one asks for different things.
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before reporting
+      options:
+        - label: I read the Warnings section in the README.
+          required: true
+        - label: This is not "the window looks frozen" or "it is taking hours" - both are expected on a Windows To Go deployment.
+          required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: What were you writing?
+      options:
+        - Windows To Go (portable Windows on the drive)
+        - Windows installer media
+        - Linux / ISOHybrid (dd)
+        - Something else, or the app failed before that
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log from the flashing window
+      description: Select the text in the console area and paste it here. Paste it whole rather than the last line - the phase it failed in is what identifies the bug.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Lufux version and how you installed it
+      placeholder: "1.3.6, yay -S lufux-git"
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution
+      placeholder: "CachyOS, Fedora 42, Ubuntu 24.04..."
+    validations:
+      required: true
+  - type: textarea
+    id: iso
+    attributes:
+      label: The image
+      description: |
+        Full file name, and where it came from. Say plainly if it is a repack or a modified build rather than a file downloaded from Microsoft - repacks ship non-generalized registry hives and half-removed components, and that changes the answer.
+    validations:
+      required: true
+  - type: textarea
+    id: drive
+    attributes:
+      label: The drive
+      description: "Output of: lsblk -o NAME,SIZE,TRAN,MODEL,RM /dev/sdX"
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: deps
+    attributes:
+      label: Tool versions
+      description: "Output of: wimlib-imagex --version; parted --version | head -1; mkfs.ntfs -V | head -1"
+      render: shell

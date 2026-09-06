@@ -1,0 +1,69 @@
+name: Windows To Go does not boot
+description: The deployment finished, but the drive does not boot or Windows fails on the way up.
+labels: ["bug", "windows-to-go"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English or Russian, either is fine.
+
+        A boot failure leaves almost no trace: a 0x7B writes no log and no minidump, because the volume it would write to is the one that failed to mount. So the screen is usually the only evidence, and these questions are what narrow it down instead.
+  - type: checkboxes
+    id: ports
+    attributes:
+      label: Ports tried
+      description: This is the single most common cause, and it costs a minute to rule out.
+      options:
+        - label: I tried the drive in a USB port on a different controller, not just a different socket. (`lsusb -t` shows which bus the drive is on, `grep -H . /sys/bus/usb/devices/usb*/serial` shows which controller each bus belongs to.)
+          required: true
+        - label: No USB hub, no front-panel header - the drive is in a port on the motherboard itself.
+          required: true
+  - type: dropdown
+    id: how_far
+    attributes:
+      label: How far does it get?
+      options:
+        - The firmware does not offer the drive as a boot option at all
+        - It starts and shows an error code before the Windows logo
+        - Windows logo, then a bugcheck (blue screen)
+        - It reaches setup / OOBE and fails there
+        - It boots, but something is wrong afterwards
+    validations:
+      required: true
+  - type: input
+    id: code
+    attributes:
+      label: The exact code on screen
+      description: Both the name and the numbers, including the parameters if a bugcheck lists them. `INACCESSIBLE_BOOT_DEVICE` with parameter 2 = 0xC0000034 is a different fault from the same name with a different parameter.
+      placeholder: "INACCESSIBLE_BOOT_DEVICE 0x0000007B (…, 0xC0000034, …)"
+  - type: textarea
+    id: iso
+    attributes:
+      label: The image
+      description: Full file name and where it came from. Repacks and "lightweight" builds ship non-generalized hives and stripped components; say so if that is what this is.
+    validations:
+      required: true
+  - type: textarea
+    id: hw
+    attributes:
+      label: The machine and the drive
+      description: |
+        Motherboard or laptop model, and whether Secure Boot is on or off.
+        Also paste: lsusb -t
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Setup logs, if the drive got that far
+      description: |
+        If it reached setup and failed there, mount the NTFS partition and paste `\Windows\Panther\setuperr.log` - it names the sysprep module that failed and its NTSTATUS. If the drive never mounted anything, say so; that is itself the answer.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Lufux version
+      placeholder: "1.3.6"
+    validations:
+      required: true

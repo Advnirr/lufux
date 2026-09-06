@@ -1,0 +1,20 @@
+name: Feature request
+description: Something Lufux should be able to do and cannot.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: "English or Russian, either is fine."
+  - type: textarea
+    id: what
+    attributes:
+      label: What should it do
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What are you trying to accomplish
+      description: The underlying task, not only the feature. There is often a shorter way to it.
+    validations:
+      required: true

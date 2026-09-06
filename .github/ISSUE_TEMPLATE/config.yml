@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Windows To Go bugchecks with INACCESSIBLE_BOOT_DEVICE (0x7B)
+    url: https://github.com/Advnirr/lufux#%EF%B8%8F-warnings
+    about: Read this first. It is usually the USB port rather than the drive or the deployment, and moving the drive to a port on the other controller often fixes it outright.
+  - name: The window looks frozen during a long flash
+    url: https://github.com/Advnirr/lufux#%EF%B8%8F-warnings
+    about: Expected. Only phase names reach the log, so the progress bar is the one thing that moves. A Windows To Go deployment takes hours.
