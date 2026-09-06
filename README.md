@@ -66,6 +66,7 @@ Note: Make sure you have the required system dependencies installed.
 ## ⚠️ Warnings
 
 * **The selected drive is erased completely,** in every mode. Check the device name on the summary page before you start.
+* **Drives the system sees as NVMe are not listed.** That covers native Thunderbolt / USB4 enclosures, which pass the SSD through as PCIe rather than as a USB disk. A normal USB-C enclosure shows up as a USB disk and works; `lsblk -o NAME,TRAN` says `usb` for those. The filter is what keeps an internal system drive out of the list, and both look the same from here, so it stays until someone with that hardware can help test a safe way to tell them apart.
 * **Wait for the Done button before pulling the drive out.** Lufux unmounts everything before it reports success. Closing the app mid-flash is safe too, the drive is simply left unwritten.
 * **A long flash looks like a frozen window.** Only phase names reach the log, so the progress bar is the one thing that moves.
 * **Windows To Go needs a fast drive.** Writing takes hours, and Windows then runs off that drive, so a cheap USB 2.0 stick is bad at both. Lufux measures the drive first and warns you if it will not keep up.
