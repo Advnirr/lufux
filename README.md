@@ -22,7 +22,7 @@ A minimalist, universal, and functional GUI tool to create bootable USB drives o
 * **Windows Support:** Automatically detects Windows ISOs and applies the correct partition scheme (GPT/FAT32 for UEFI, or MBR/NTFS for Legacy BIOS).
 * **Large WIM Handling:** Automatically detects solid `.esd` archives and `.wim` files larger than 4GB, splitting or converting them on the fly to bypass FAT32 limitations.
 * **Windows To Go:** Installs Windows onto the USB drive itself, so it boots as a full portable system rather than an installer. Writes a hand-built BCD store keyed to the drive's own GPT GUIDs, verified to reach OOBE from a real removable stick.
-* **Drive Speed Check:** Before a Windows To Go deployment the drive's sequential and 4 KB random write rates are measured. Windows To Go *runs* from the drive, so a stick that is merely slow makes an unusable system rather than a slow flash; Lufux reports the measured numbers and offers to cancel before the hours a deployment takes.
+* **Drive Speed Check:** Measures sequential and 4 KB random writes before a Windows To Go deployment and warns you if the drive is too slow to run Windows from.
 * **Linux / Isohybrid Support:** Uses direct bit-for-bit block copying via `dd` for guaranteed bootability of Linux distributions.
 * **Native:** GTK4/Adwaita interface.
 
@@ -59,6 +59,14 @@ cd lufux
 python main.py
 ```
 Note: Make sure you have the required system dependencies installed.
+
+## ⚠️ Warnings
+
+* **The selected drive is erased completely,** in every mode. Check the device name on the summary page before you start.
+* **Wait for the Done button before pulling the drive out.** Lufux unmounts everything before it reports success. Closing the app mid-flash is safe too, the drive is simply left unwritten.
+* **A long flash looks like a frozen window.** Only phase names reach the log, so the progress bar is the one thing that moves.
+* **Windows To Go needs a fast drive.** Writing takes hours, and Windows then runs off that drive, so a cheap USB 2.0 stick is bad at both. Lufux measures the drive first and warns you if it will not keep up.
+* **If Windows To Go bugchecks with INACCESSIBLE_BOOT_DEVICE (0x7B), try another USB port.** A good drive can fail on one controller and boot fine from a port on another. `lsusb -t` shows which bus the drive is on, `grep -H . /sys/bus/usb/devices/usb*/serial` shows which controller each bus belongs to.
 
 ## 💜 Support
 

@@ -110,9 +110,9 @@ detach || exit 1
 wipefs -a "$DEV_PATH"
 
 echo "STATUS: {T['speed']}"
-# Windows To Go runs *from* the drive, so a stick that is merely slow makes an
-# unusable system rather than a slow flash. Measure before spending hours
-# deploying onto it, and let the GUI put the numbers to the user. The test
+# Windows To Go runs *from* the drive, so a slow stick costs twice: hours to
+# deploy onto, and a system that is then unusable. Measure before spending
+# those hours, and let the GUI put the numbers to the user. The test
 # writes to the raw device - hence after wipefs, so refusing here leaves the
 # drive empty instead of half-overwritten.
 SPEED=$(python3 {speed_logic} "$DEV_PATH" 2>/dev/null) || SPEED=""

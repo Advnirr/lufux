@@ -159,18 +159,16 @@ def get_locale_dict():
                 "Замер накопителя:\n"
                 "• последовательная запись — <b>{seq} МБ/с</b>\n"
                 "• случайная запись 4 КБ — <b>{iops} операций/с</b>\n\n"
-                "Для приемлемой работы Windows To Go нужно хотя бы "
-                "{min_seq} МБ/с и {min_iops} операций/с. Windows не просто "
-                "лежит на этом накопителе, она с него работает: на таком "
-                "загрузка займёт часы, а система будет замирать при каждом "
-                "обращении к диску.\n\n"
-                "Развёртывание всё равно займёт несколько часов. "
-                "Накопитель уже очищен — отмена оставит его пустым."
+                "Это мало, ориентир — {min_seq} МБ/с и {min_iops} операций/с. "
+                "Windows будет работать с этого накопителя: на такой скорости "
+                "она грузится часами и подвисает почти на любом действии.\n\n"
+                "Запись займёт несколько часов в любом случае. Накопитель уже "
+                "очищен, отмена оставит его пустым."
             ),
             "speed_ok": "Скорость накопителя: {seq} МБ/с, {iops} операций/с — достаточно",
-            "speed_slow": "Скорость накопителя: {seq} МБ/с, {iops} операций/с — ниже нормы",
+            "speed_slow": "Скорость накопителя: {seq} МБ/с, {iops} операций/с — мало",
             "btn_continue_anyway": "Всё равно продолжить",
-            "speed_canceled": "Запись отменена: накопитель не проходит по скорости",
+            "speed_canceled": "Запись отменена: накопитель слишком медленный",
             "err_code": "Код:"
         }
     return {
@@ -243,15 +241,14 @@ def get_locale_dict():
             "Measured on this drive:\n"
             "• sequential write — <b>{seq} MB/s</b>\n"
             "• random 4 KB write — <b>{iops} ops/s</b>\n\n"
-            "Windows To Go needs at least {min_seq} MB/s and {min_iops} ops/s "
-            "to be usable. Windows does not merely sit on this drive, it runs "
-            "from it: booting will take hours and the system will freeze on "
-            "every disk access.\n\n"
-            "Deploying will take several hours regardless. "
-            "The drive has already been erased — cancelling leaves it empty."
+            "That is low; the bar is {min_seq} MB/s and {min_iops} ops/s. "
+            "Windows will be running off this drive, and at that speed it "
+            "boots in hours and stalls on almost anything you do.\n\n"
+            "Writing takes hours either way. The drive is already erased, so "
+            "cancelling leaves it empty."
         ),
         "speed_ok": "Drive speed: {seq} MB/s, {iops} ops/s — good enough",
-        "speed_slow": "Drive speed: {seq} MB/s, {iops} ops/s — below the bar",
+        "speed_slow": "Drive speed: {seq} MB/s, {iops} ops/s — too low",
         "btn_continue_anyway": "Continue anyway",
         "speed_canceled": "Flashing cancelled: the drive is too slow",
         "err_code": "Code:"
