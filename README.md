@@ -4,7 +4,7 @@
 
 **English | [Русский](README_ru.md)**
 
-A minimalist, universal, and functional GUI tool to create bootable USB drives on Linux, supporting both ISOHybrid and Windows images. Built with Python, GTK4, and Libadwaita.
+A minimalist, universal, and functional GUI tool to create bootable USB drives on Linux: ISOHybrid images, Windows installation media, and Windows To Go. Built with Python, GTK4, and Libadwaita.
 
 <p align="left">
   <a href="https://github.com/Advnirr/lufux/releases">
