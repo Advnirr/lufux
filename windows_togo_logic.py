@@ -146,7 +146,26 @@ parted -s "$DEV_PATH" mkpart Windows ntfs 513MiB 100%
 sleep 2
 
 mkfs.vfat -F 32 -n "ESP" "${{DEV_PATH}}${{PS}}1"
-mkfs.ntfs -f -L "Windows" "${{DEV_PATH}}${{PS}}2"
+
+# mkntfs normally asks the kernel where the partition starts and writes that
+# into the NTFS boot sector, which is the field Windows reads to find the
+# volume. Where the geometry ioctls answer nothing - a loop device, and some
+# card readers and bridges - it writes zero instead and says so: "Windows will
+# not be able to boot from this device". Lufux laid this partition down itself,
+# so give mkntfs the number rather than leaving it to ask. It still cannot fill
+# in heads and sectors-per-track there and keeps warning about them, but those
+# are CHS fields a UEFI boot never reads: with the start set and those left at
+# zero, a drive deployed onto a loop device boots to the Windows desktop.
+PART_NAME=$(basename "${{DEV_PATH}}${{PS}}2")
+PART_START=$(cat "/sys/class/block/$PART_NAME/start" 2>/dev/null || echo 0)
+SECTOR_SIZE=$(blockdev --getss "$DEV_PATH" 2>/dev/null || echo 512)
+NTFS_START=""
+# sysfs counts in 512-byte sectors whatever the device's own sector size is,
+# and mkntfs wants the number in the device's sectors
+if [ "$PART_START" -gt 0 ] 2>/dev/null && [ "$SECTOR_SIZE" -gt 0 ] 2>/dev/null; then
+    NTFS_START="-p $((PART_START * 512 / SECTOR_SIZE))"
+fi
+mkfs.ntfs -f $NTFS_START -L "Windows" "${{DEV_PATH}}${{PS}}2"
 
 # locate the Windows image inside the ISO
 mount -o loop,ro "$ISO_PATH" "$ISO_MNT"
