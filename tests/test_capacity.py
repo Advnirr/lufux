@@ -35,13 +35,17 @@ Name:                   Windows 11 Pro
 Description:            Windows 11 Pro
 Directory Count:        20000
 File Count:             90000
-Total Bytes:            16106127360
+Total Bytes:            19883360545
+Hard Link Bytes:        7798171240
 
 Index:                  2
 Name:                   Windows 11 Home
 Display Name:           Windows 11 Home
 Total Bytes:            15032385536
 """
+
+# what the first image above actually occupies once applied
+APPLIED = 19883360545 - 7798171240
 
 
 class Dropdown:
@@ -59,9 +63,21 @@ class Dropdown:
 class ParseWimInfo(unittest.TestCase):
     def test_reads_index_name_and_size(self):
         self.assertEqual(main.parse_wim_info(WIM_INFO), [
-            (1, "Windows 11 Pro", 16106127360),
+            (1, "Windows 11 Pro", APPLIED),
             (2, "Windows 11 Home", 15032385536),
         ])
+
+    def test_hard_linked_bytes_are_not_counted_twice(self):
+        # Total Bytes adds up file sizes and Windows keeps WinSxS as hard
+        # links, so the raw figure overstates a real image by several GiB -
+        # enough to refuse a drive the deployment actually fits on
+        size = main.parse_wim_info(WIM_INFO)[0][2]
+        self.assertEqual(size, APPLIED)
+        self.assertLess(size, 19883360545)
+
+    def test_an_image_without_hard_links_keeps_its_whole_size(self):
+        info = "Index: 1\nName: Thin\nTotal Bytes: 4000000\nHard Link Bytes: 0\n"
+        self.assertEqual(main.parse_wim_info(info), [(1, "Thin", 4000000)])
 
     def test_display_name_is_not_mistaken_for_the_name(self):
         names = [name for _, name, _ in main.parse_wim_info(WIM_INFO)]

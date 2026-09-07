@@ -106,7 +106,19 @@ def list_iso_editions(iso_path):
 
 
 def parse_wim_info(info):
-    """[(index, name, size)] out of `wimlib-imagex info` on a WIM."""
+    """[(index, name, size)] out of `wimlib-imagex info` on a WIM.
+
+    The size is what the image occupies once applied, which is not what
+    "Total Bytes" says: that field adds up file sizes, and Windows keeps
+    WinSxS as hard links, so every linked file is counted again for each name
+    it has. "Hard Link Bytes" is that duplication, and wimlib applies the
+    links as links, so it never reaches the drive. A real Windows 11 image
+    measured 18.5 GiB by the first figure and 11.3 GiB by the difference -
+    and 11.9 GiB is what actually landed on a stick.
+
+    Both figures stay 0 if a future wimlib stops printing them, and the
+    capacity check then skips itself rather than guessing.
+    """
     editions = []
     index = None
     for line in info.splitlines():
@@ -117,12 +129,9 @@ def parse_wim_info(info):
             editions.append([int(index), line.split(":", 1)[1].strip(), 0])
             index = None
         elif line.startswith("Total Bytes:") and editions:
-            # the image's uncompressed size, which is what has to fit on the
-            # drive. wimlib prints it per image in this same listing, so the
-            # capacity check costs no extra call. It stays 0 if a future wimlib
-            # drops the field, and the check then skips itself rather than
-            # guessing.
-            editions[-1][2] = int(line.split(":", 1)[1].strip())
+            editions[-1][2] += int(line.split(":", 1)[1].strip())
+        elif line.startswith("Hard Link Bytes:") and editions:
+            editions[-1][2] -= int(line.split(":", 1)[1].strip())
     return [tuple(edition) for edition in editions]
 
 
