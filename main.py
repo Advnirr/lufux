@@ -22,6 +22,15 @@ DEFAULT_CONFIG = {"theme": 0, "lang": ""}
 WTG_MIN_SEQ_MBPS = 15.0
 WTG_MIN_RAND_IOPS = 100
 
+# The ESP the Windows To Go script carves out (1 MiB gap + 512 MiB), plus what
+# NTFS spends on its own metadata, plus the room Windows wants left over: it
+# still has OOBE to finish after the apply. Deploying is measured in hours, so
+# running out of space is worth catching before the first byte is written and
+# not at the end.
+WTG_ESP_BYTES = 513 * 1024 ** 2
+WTG_NTFS_OVERHEAD = 1.03
+WTG_FREE_MARGIN = 2 * 1024 ** 3
+
 # resolving through $PATH would be no better than handing subprocess a bare
 # name, since $PATH is user-controlled; only these locations are trusted.
 TRUSTED_BIN_DIRS = ("/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/local/sbin")
@@ -42,7 +51,7 @@ def resolve_bin(name):
     return path or name
 
 def list_iso_editions(iso_path):
-    """[(image index, name)] for the Windows images in an ISO, [] if unreadable.
+    """[(image index, name, size)] for the Windows images in an ISO, [] if unreadable.
 
     Windows To Go deploys one image out of install.wim, and a retail ISO carries
     several - Home, Pro, Education. Reading that list means reading the file,
@@ -88,9 +97,16 @@ def list_iso_editions(iso_path):
             if line.startswith("Index:"):
                 index = line.split(":", 1)[1].strip()
             elif line.startswith("Name:") and index is not None:
-                editions.append((int(index), line.split(":", 1)[1].strip()))
+                editions.append([int(index), line.split(":", 1)[1].strip(), 0])
                 index = None
-        return editions
+            elif line.startswith("Total Bytes:") and editions:
+                # the image's uncompressed size, which is what has to fit on the
+                # drive. wimlib prints it per image in this same listing, so the
+                # capacity check costs no extra call. It stays 0 if a future
+                # wimlib drops the field, and the check then skips itself rather
+                # than guessing.
+                editions[-1][2] = int(line.split(":", 1)[1].strip())
+        return [tuple(edition) for edition in editions]
     # a listing that fails costs the edition choice, never the flash
     except (OSError, ValueError, subprocess.SubprocessError):
         return []
@@ -103,6 +119,24 @@ def list_iso_editions(iso_path):
                         capture_output=True, check=False, timeout=30)
                 except (OSError, subprocess.SubprocessError):
                     pass
+
+
+def fmt_size(size):
+    """Bytes as a human figure with its unit; a netinst ISO is not 0.0 GiB."""
+    if size >= 1024 ** 3:
+        return f"{size / 1024 ** 3:.1f} GiB"
+    return f"{size / 1024 ** 2:.0f} MiB"
+
+
+def device_size_bytes(dev):
+    """The whole device's size in bytes, or 0 when lsblk cannot say."""
+    try:
+        res = subprocess.run(  # nosec B603
+            [resolve_bin('lsblk'), '-bdno', 'SIZE', dev],
+            capture_output=True, text=True, check=True, timeout=10)
+        return int(res.stdout.split("\n")[0].strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0
 
 
 def load_config():
@@ -236,6 +270,20 @@ def get_locale_dict():
             "speed_slow": "Скорость накопителя: {seq} МБ/с, {iops} операций/с — мало",
             "btn_continue_anyway": "Всё равно продолжить",
             "speed_canceled": "Запись отменена: накопитель слишком медленный",
+            "cap_block_title": "Образ не поместится",
+            "cap_block_body": (
+                "Для записи нужно <b>{needed}</b>, а на накопителе "
+                "<b>{size}</b>.\n\n"
+                "Возьмите накопитель больше или выберите редакцию поменьше."
+            ),
+            "cap_tight_title": "Места почти не останется",
+            "cap_tight_body": (
+                "После развёртывания свободным останется около "
+                "<b>{free}</b>.\n\n"
+                "Windows ещё предстоит завершить первую настройку, и на таком "
+                "остатке она может не пройти её до конца."
+            ),
+            "cap_log": "Нужно {needed}, на накопителе {size}",
             "err_code": "Код:"
         }
     return {
@@ -321,6 +369,20 @@ def get_locale_dict():
         "speed_slow": "Drive speed: {seq} MB/s, {iops} ops/s — too low",
         "btn_continue_anyway": "Continue anyway",
         "speed_canceled": "Flashing cancelled: the drive is too slow",
+        "cap_block_title": "The image will not fit",
+        "cap_block_body": (
+            "Writing this needs <b>{needed}</b> and the drive holds "
+            "<b>{size}</b>.\n\n"
+            "Use a larger drive, or pick a smaller edition."
+        ),
+        "cap_tight_title": "Almost nothing will be left free",
+        "cap_tight_body": (
+            "About <b>{free}</b> would be free once the deployment "
+            "finishes.\n\n"
+            "Windows still has its first-run setup to get through, and it may "
+            "not finish with that little room."
+        ),
+        "cap_log": "Needs {needed}, the drive holds {size}",
         "err_code": "Code:"
     }
 
@@ -514,6 +576,13 @@ class LufuxWindow(Adw.ApplicationWindow):
             return self.editions[pos][0]
         return 1
 
+    def selected_img_bytes(self):
+        """Uncompressed size of the image to deploy, 0 when it is not known."""
+        pos = self.edition_dropdown.get_selected()
+        if self.editions and 0 <= pos < len(self.editions):
+            return self.editions[pos][2]
+        return self.editions[0][2] if self.editions else 0
+
     def read_editions(self, iso):
         editions = list_iso_editions(iso)
         GLib.idle_add(self.apply_editions, iso, editions)
@@ -523,7 +592,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         if iso != self.iso_path:
             return
         self.editions = editions
-        names = [name for _, name in editions] or [T["edition_reading"]]
+        names = [name for _, name, _ in editions] or [T["edition_reading"]]
         self.edition_dropdown.set_model(Gtk.StringList.new(names))
         self.edition_dropdown.set_selected(0)
         self.update_edition_visible()
@@ -643,7 +712,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.sum_edition.set_visible(wtg and bool(self.editions))
         if wtg and self.editions:
             self.sum_edition.set_subtitle(
-                dict(self.editions).get(self.selected_img_index(), ""))
+                {idx: name for idx, name, _ in self.editions}.get(
+                    self.selected_img_index(), ""))
 
         if wtg:
             self.sum_scheme.set_subtitle(T["wtg_summary"])
@@ -660,7 +730,73 @@ class LufuxWindow(Adw.ApplicationWindow):
         if "nvme" in self.selected_dev:
             self.append_log(T["nvme_lock"])
             return
-            
+
+        problem = self.capacity_problem()
+        if problem:
+            kind, needed, size = problem
+            if kind == "block":
+                self.show_capacity_block(needed, size)
+            else:
+                self.show_capacity_warning(size - needed)
+            return
+
+        self.proceed_to_warnings()
+
+    def capacity_problem(self):
+        """("block"|"tight", needed, drive size) if it may not fit, else None.
+
+        "block" means it cannot fit at all, "tight" that Windows would be left
+        with almost nothing free. Any missing number returns None: a check that
+        cannot be made must not stand in the way of a flash.
+        """
+        size = device_size_bytes(self.selected_dev)
+        if not size:
+            return None
+
+        wtg = self.os_dropdown.get_selected() == 0 and self.wtg_check.get_active()
+        if wtg:
+            image = self.selected_img_bytes()
+            if not image:
+                return None
+            needed = WTG_ESP_BYTES + int(image * WTG_NTFS_OVERHEAD)
+        else:
+            # the other modes put the ISO itself on the drive, whole
+            try:
+                needed = os.path.getsize(self.iso_path)
+            except OSError:
+                return None
+
+        if needed > size:
+            return ("block", needed, size)
+        if wtg and size - needed < WTG_FREE_MARGIN:
+            return ("tight", needed, size)
+        return None
+
+    def show_capacity_block(self, needed, size):
+        self.append_log(T["cap_log"].format(needed=fmt_size(needed), size=fmt_size(size)))
+        dialog = Adw.AlertDialog(
+            heading=T["cap_block_title"],
+            body=T["cap_block_body"].format(needed=fmt_size(needed), size=fmt_size(size)),
+        )
+        dialog.set_body_use_markup(True)
+        dialog.add_response("ok", T["btn_close_dialog"])
+        dialog.choose(self, None, lambda *_: None)
+
+    def show_capacity_warning(self, free):
+        dialog = Adw.AlertDialog(
+            heading=T["cap_tight_title"],
+            body=T["cap_tight_body"].format(free=fmt_size(free)),
+        )
+        dialog.set_body_use_markup(True)
+        dialog.add_response("cancel", T["btn_cancel"])
+        dialog.add_response("continue", T["btn_continue_anyway"])
+        dialog.choose(self, None, self.on_capacity_response)
+
+    def on_capacity_response(self, dialog, result):
+        if dialog.choose_finish(result) == "continue":
+            self.proceed_to_warnings()
+
+    def proceed_to_warnings(self):
         # deps check
         missing = check_dependencies()
         if missing:
