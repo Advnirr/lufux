@@ -140,9 +140,9 @@ esac
 echo "STATUS: {T['part']}"
 # GPT: partition 1 = FAT32 ESP, partition 2 = NTFS Windows
 parted -s "$DEV_PATH" mklabel gpt
-parted -s "$DEV_PATH" mkpart ESP fat32 1MiB 1025MiB
+parted -s "$DEV_PATH" mkpart ESP fat32 1MiB 513MiB
 parted -s "$DEV_PATH" set 1 esp on
-parted -s "$DEV_PATH" mkpart Windows ntfs 1025MiB 100%
+parted -s "$DEV_PATH" mkpart Windows ntfs 513MiB 100%
 sleep 2
 
 mkfs.vfat -F 32 -n "ESP" "${{DEV_PATH}}${{PS}}1"
