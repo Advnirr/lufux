@@ -90,23 +90,7 @@ def list_iso_editions(iso_path):
             [resolve_bin('wimlib-imagex'), 'info', image],
             text=True, capture_output=True, check=False, timeout=120).stdout
 
-        editions = []
-        index = None
-        for line in info.splitlines():
-            # "Display Name:" is a different key and must not be picked up here
-            if line.startswith("Index:"):
-                index = line.split(":", 1)[1].strip()
-            elif line.startswith("Name:") and index is not None:
-                editions.append([int(index), line.split(":", 1)[1].strip(), 0])
-                index = None
-            elif line.startswith("Total Bytes:") and editions:
-                # the image's uncompressed size, which is what has to fit on the
-                # drive. wimlib prints it per image in this same listing, so the
-                # capacity check costs no extra call. It stays 0 if a future
-                # wimlib drops the field, and the check then skips itself rather
-                # than guessing.
-                editions[-1][2] = int(line.split(":", 1)[1].strip())
-        return [tuple(edition) for edition in editions]
+        return parse_wim_info(info)
     # a listing that fails costs the edition choice, never the flash
     except (OSError, ValueError, subprocess.SubprocessError):
         return []
@@ -119,6 +103,27 @@ def list_iso_editions(iso_path):
                         capture_output=True, check=False, timeout=30)
                 except (OSError, subprocess.SubprocessError):
                     pass
+
+
+def parse_wim_info(info):
+    """[(index, name, size)] out of `wimlib-imagex info` on a WIM."""
+    editions = []
+    index = None
+    for line in info.splitlines():
+        # "Display Name:" is a different key and must not be picked up here
+        if line.startswith("Index:"):
+            index = line.split(":", 1)[1].strip()
+        elif line.startswith("Name:") and index is not None:
+            editions.append([int(index), line.split(":", 1)[1].strip(), 0])
+            index = None
+        elif line.startswith("Total Bytes:") and editions:
+            # the image's uncompressed size, which is what has to fit on the
+            # drive. wimlib prints it per image in this same listing, so the
+            # capacity check costs no extra call. It stays 0 if a future wimlib
+            # drops the field, and the check then skips itself rather than
+            # guessing.
+            editions[-1][2] = int(line.split(":", 1)[1].strip())
+    return [tuple(edition) for edition in editions]
 
 
 def fmt_size(size):

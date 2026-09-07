@@ -63,6 +63,17 @@ python main.py
 ```
 Note: Make sure you have the required system dependencies installed.
 
+## 🧪 Tests
+
+```bash
+python -m unittest discover -s tests
+```
+
+They cover the parts that can be checked without a drive: the BCD store lufux
+writes by hand (built, then read back with the repo's own hive parser), reading
+the GPT GUIDs, the capacity check, dependency detection and the drive
+benchmark. Nothing in them touches a real device or needs root.
+
 ## ⚠️ Warnings
 
 * **The selected drive is erased completely,** in every mode. Check the device name on the summary page before you start.
