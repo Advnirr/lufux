@@ -193,7 +193,7 @@ from universal_logic import get_linux_script
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
 
 # here I am
-APP_VERSION = "1.3.6"
+APP_VERSION = "1.3.7"
 GITHUB_URL = "https://github.com/Advnirr/lufux"
 WEB_URL = "https://advnirr.org/"
 
