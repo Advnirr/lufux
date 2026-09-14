@@ -30,7 +30,7 @@
 ## 📦 Зависимости
 
 Для запуска Lufux, вам потребуются следующие системные пакеты:
-`python-gobject`, `gtk4`, `libadwaita`, `wimlib` (для wimlib-imagex), `rsync`, `parted`, `polkit` (для pkexec), `dosfstools` (для mkfs.vfat), `ntfs-3g` (для mkfs.ntfs).
+`python-gobject`, `gtk4`, `libadwaita`, `wimlib` (для wimlib-imagex), `rsync`, `parted`, `polkit` (для pkexec), `dosfstools` (для mkfs.vfat), `ntfs-3g` (для mkfs.ntfs), а для MBR/Legacy BIOS ещё `grub` (`grub2-common` + `grub-pc-bin` на Debian/Ubuntu, `grub2-tools` + `grub2-pc-modules` на Fedora).
 
 `udisks2` — необязателен. Именно он позволяет Lufux прочитать список редакций из образа, не спрашивая пароль; без него Windows To Go развернёт первую редакцию.
 

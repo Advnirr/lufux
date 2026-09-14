@@ -811,8 +811,11 @@ class LufuxWindow(Adw.ApplicationWindow):
             self.proceed_to_warnings()
 
     def proceed_to_warnings(self):
-        # deps check
-        missing = check_dependencies()
+        # deps check; GRUB is only needed for the MBR media it makes BIOS-bootable
+        bios_boot = (self.os_dropdown.get_selected() == 0
+                     and not self.wtg_check.get_active()
+                     and self.scheme_dropdown.get_selected() == 1)
+        missing = check_dependencies(bios_boot=bios_boot)
         if missing:
             self.prompt_install_dependencies(missing)
         else:

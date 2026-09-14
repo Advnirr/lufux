@@ -11,6 +11,7 @@ def get_locale_dict():
             "copy_wim": "Прямое копирование WIM...",
             "split_wim": "Разделение WIM-образа...",
             "conv_lzx": "Конвертация в LZX (Solid архив)...",
+            "grub": "Установка загрузчика для Legacy BIOS (GRUB)...",
             "sync": "Синхронизация ввода-вывода (sync)..."
         }
     return {
@@ -20,6 +21,7 @@ def get_locale_dict():
         "copy_wim": "Directly copying WIM...",
         "split_wim": "Splitting WIM image...",
         "conv_lzx": "Converting to LZX (Solid archive)...",
+        "grub": "Installing the Legacy BIOS bootloader (GRUB)...",
         "sync": "Syncing I/O (sync)..."
     }
 
@@ -35,15 +37,51 @@ parted -s "$DEV_PATH" mklabel gpt
 parted -s "$DEV_PATH" mkpart primary fat32 1MiB 100%
 parted -s "$DEV_PATH" set 1 msftdata on
 sleep 2
-mkfs.vfat -F 32 -n "WINUSB" "${DEV_PATH}1"
+mkfs.vfat -F 32 -n "WINUSB" "${DEV_PATH}${PS}1"
 """
+        boot_cmds = ""
     else:
         part_cmds = """
 parted -s "$DEV_PATH" mklabel msdos
 parted -s "$DEV_PATH" mkpart primary ntfs 1MiB 100%
 parted -s "$DEV_PATH" set 1 boot on
 sleep 2
-mkfs.ntfs -f -L "WINUSB" "${DEV_PATH}1"
+# the partition start, handed to mkntfs for the reason windows_togo_logic.py
+# gives: where the geometry ioctls answer nothing it writes zero instead
+PART_START=$(cat "/sys/class/block/$(basename "${DEV_PATH}${PS}1")/start" 2>/dev/null || echo 0)
+SECTOR_SIZE=$(blockdev --getss "$DEV_PATH" 2>/dev/null || echo 512)
+NTFS_START=""
+if [ "$PART_START" -gt 0 ] 2>/dev/null && [ "$SECTOR_SIZE" -gt 0 ] 2>/dev/null; then
+    NTFS_START="-p $((PART_START * 512 / SECTOR_SIZE))"
+fi
+mkfs.ntfs -f $NTFS_START -L "WINUSB" "${DEV_PATH}${PS}1"
+"""
+        # A BIOS runs the boot code in the MBR and then the partition's, and a
+        # drive laid out as above has neither: parted writes no boot code and
+        # mkfs.ntfs writes a "This is not a bootable disk" stub. GRUB provides
+        # both and loads bootmgr as a file, the way WoeUSB does; a Windows 11
+        # 24H2 installer booted that way under SeaBIOS reaches Setup.
+        boot_cmds = f"""
+echo "STATUS: {T['grub']}"
+GRUB_INSTALL=$(command -v grub-install || command -v grub2-install || true)
+if [ -z "$GRUB_INSTALL" ]; then
+    echo "grub-install not found" >&2
+    exit 1
+fi
+"$GRUB_INSTALL" --target=i386-pc --boot-directory="$USB_MNT" --force "$DEV_PATH" 2>&1
+# Fedora's grub2-install names the directory after itself
+GRUB_DIR="$USB_MNT/grub"
+[ -d "$USB_MNT/grub2" ] && GRUB_DIR="$USB_MNT/grub2"
+# every module is loaded by name: booted from this NTFS volume, GRUB found no
+# command it had not loaded yet, although grub-fstest reads its command.lst
+# intact - so autoloading is not relied on
+cat > "$GRUB_DIR/grub.cfg" <<'EOF'
+insmod part_msdos
+insmod ntfs
+insmod ntldr
+ntldr /bootmgr
+boot
+EOF
 """
 
     script = f"""#!/bin/bash
@@ -95,12 +133,19 @@ echo "STATUS: {T['prep']}"
 umount "$DEV_PATH"* 2>/dev/null || true
 wipefs -a "$DEV_PATH"
 
+# sd* names partitions by appending a number, but a device whose own name ends
+# in a digit - nvme0n1, mmcblk0, loop0 - separates them with a "p"
+case "$DEV_PATH" in
+    *[0-9]) PS="p" ;;
+    *)      PS="" ;;
+esac
+
 # applying schemes
 {part_cmds}
 
 sleep 2
 mount -o loop,ro "$ISO_PATH" "$ISO_MNT"
-mount "${{DEV_PATH}}1" "$USB_MNT"
+mount "${{DEV_PATH}}${{PS}}1" "$USB_MNT"
 
 echo "STATUS: {T['copy_base']}"
 # Copying
@@ -148,7 +193,7 @@ if [ -n "$TF" ]; then
         fi
     fi
 fi
-
+{boot_cmds}
 echo "STATUS: {T['sync']}"
 sync
 

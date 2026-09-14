@@ -1,6 +1,7 @@
 import os
 import shutil
 
+# a value is one package, or a tuple where a distro splits the tool up
 PKG_MAP = {
     "arch": {
         "wimlib-imagex": "wimlib",
@@ -8,7 +9,8 @@ PKG_MAP = {
         "parted": "parted",
         "pkexec": "polkit",
         "mkfs.vfat": "dosfstools",
-        "mkfs.ntfs": "ntfs-3g"
+        "mkfs.ntfs": "ntfs-3g",
+        "grub-install": "grub"
     },
     "debian": {
         "wimlib-imagex": "wimtools",
@@ -16,7 +18,10 @@ PKG_MAP = {
         "parted": "parted",
         "pkexec": "policykit-1",
         "mkfs.vfat": "dosfstools",
-        "mkfs.ntfs": "ntfs-3g"
+        "mkfs.ntfs": "ntfs-3g",
+        # grub-install is in grub2-common, the BIOS modules in grub-pc-bin;
+        # neither installs a bootloader onto this machine, unlike grub-pc
+        "grub-install": ("grub2-common", "grub-pc-bin")
     },
     "fedora": {
         "wimlib-imagex": "wimlib-utils",
@@ -24,7 +29,8 @@ PKG_MAP = {
         "parted": "parted",
         "pkexec": "polkit",
         "mkfs.vfat": "dosfstools",
-        "mkfs.ntfs": "ntfsprogs"
+        "mkfs.ntfs": "ntfsprogs",
+        "grub-install": ("grub2-tools", "grub2-pc-modules")
     }
 }
 
@@ -32,22 +38,34 @@ PKG_MAP = {
 # on Debian, so shutil.which alone reports them missing when they are installed
 SEARCH_DIRS = ("/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/local/sbin")
 
+# grub-install alone is not enough: a UEFI-only GRUB install has the command
+# but not the i386-pc modules, and it would fail only after the drive is wiped
+GRUB_BIOS_MODULE = "/usr/lib/grub/i386-pc/ntldr.mod"
+
 def _have_cmd(name):
     if shutil.which(name):
         return True
     return any(os.access(os.path.join(d, name), os.X_OK) for d in SEARCH_DIRS)
 
-def check_dependencies():
+def _have_bios_grub():
+    return ((_have_cmd("grub-install") or _have_cmd("grub2-install"))
+            and os.path.isfile(GRUB_BIOS_MODULE))
+
+def check_dependencies(bios_boot=False):
     # mkfs.vfat (GPT path) and mkfs.ntfs (MBR path) are called by the Windows
     # script after the drive is already wiped, so they must be caught up front
     required_cmds = ["wimlib-imagex", "rsync", "parted", "pkexec",
                      "mkfs.vfat", "mkfs.ntfs"]
-    return [cmd for cmd in required_cmds if not _have_cmd(cmd)]
+    missing = [cmd for cmd in required_cmds if not _have_cmd(cmd)]
+    # only MBR media boots through GRUB; nobody else should have to install it
+    if bios_boot and not _have_bios_grub():
+        missing.append("grub-install")
+    return missing
 
 def get_distro_info():
     distro_id = "unknown"
     distro_name = "Unknown Linux"
-    
+
     if os.path.exists("/etc/os-release"):
         with open("/etc/os-release", encoding="utf-8") as f:
             for line in f:
@@ -80,7 +98,12 @@ def get_install_cmd(missing_cmds):
     if base == "unknown" or "pkexec" in missing_cmds:
         return None
 
-    packages = sorted({PKG_MAP[base][cmd] for cmd in missing_cmds if cmd in PKG_MAP[base]})
+    packages = set()
+    for cmd in missing_cmds:
+        pkg = PKG_MAP[base].get(cmd)
+        if pkg:
+            packages.update((pkg,) if isinstance(pkg, str) else pkg)
+    packages = sorted(packages)
     if not packages:
         return None
 

@@ -19,7 +19,8 @@ class Formatting(unittest.TestCase):
     def scripts(self):
         return {
             "windows to go": get_windows_togo_script(1),
-            "windows": get_windows_script("gpt"),
+            "windows gpt": get_windows_script("gpt"),
+            "windows mbr": get_windows_script("mbr"),
             "linux": get_linux_script(),
         }
 
@@ -61,6 +62,38 @@ class NtfsGeometry(unittest.TestCase):
     def test_the_esp_is_512_mib_and_windows_follows_it(self):
         self.assertIn('mkpart ESP fat32 1MiB 513MiB', self.script)
         self.assertIn('mkpart Windows ntfs 513MiB 100%', self.script)
+
+
+class LegacyBiosBoot(unittest.TestCase):
+    def setUp(self):
+        self.mbr = get_windows_script("mbr")
+        self.gpt = get_windows_script("gpt")
+
+    def test_mbr_media_gets_bios_boot_code(self):
+        # without it the drive hangs at "Booting from Hard Disk..."
+        self.assertIn('--target=i386-pc --boot-directory="$USB_MNT" --force "$DEV_PATH"', self.mbr)
+        self.assertIn("ntldr /bootmgr", self.mbr)
+
+    def test_grub_modules_are_loaded_by_name(self):
+        # autoloading found nothing when GRUB booted from the NTFS volume
+        for module in ("part_msdos", "ntfs", "ntldr"):
+            with self.subTest(module=module):
+                self.assertIn(f"insmod {module}", self.mbr)
+
+    def test_grub_is_installed_before_the_drive_is_unmounted(self):
+        self.assertLess(self.mbr.index("grub-install"), self.mbr.index('umount "$USB_MNT"'))
+
+    def test_uefi_media_is_left_without_grub(self):
+        self.assertNotIn("grub-install", self.gpt)
+
+    def test_mbr_passes_the_partition_start_to_mkntfs(self):
+        self.assertIn("mkfs.ntfs -f $NTFS_START", self.mbr)
+
+    def test_partitions_are_named_for_devices_ending_in_a_digit(self):
+        for name, script in (("mbr", self.mbr), ("gpt", self.gpt)):
+            with self.subTest(scheme=name):
+                self.assertIn('*[0-9]) PS="p"', script)
+                self.assertNotIn('"${DEV_PATH}1"', script)
 
 
 if __name__ == "__main__":

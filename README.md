@@ -30,7 +30,7 @@ A minimalist, universal, and functional GUI tool to create bootable USB drives o
 ## 📦 Dependencies
 
 To run Lufux, you need the following system packages:
-`python-gobject`, `gtk4`, `libadwaita`, `wimlib` (for wimlib-imagex), `rsync`, `parted`, `polkit` (for pkexec), `dosfstools` (for mkfs.vfat), `ntfs-3g` (for mkfs.ntfs).
+`python-gobject`, `gtk4`, `libadwaita`, `wimlib` (for wimlib-imagex), `rsync`, `parted`, `polkit` (for pkexec), `dosfstools` (for mkfs.vfat), `ntfs-3g` (for mkfs.ntfs), and `grub` for MBR/Legacy BIOS media only (`grub2-common` + `grub-pc-bin` on Debian/Ubuntu, `grub2-tools` + `grub2-pc-modules` on Fedora).
 
 `udisks2` is optional. It is what lets Lufux read the edition list out of an ISO without asking for a password; without it, Windows To Go deploys the first edition in the image.
 
