@@ -9,7 +9,7 @@ depends=('python-gobject' 'gtk4' 'libadwaita' 'wimlib' 'rsync' 'parted' 'polkit'
 optdepends=('udisks2: read the Windows edition list out of an ISO'
             'grub: boot MBR/NTFS Windows media on Legacy BIOS')
 makedepends=('git')
-source=("main.py" "windows_logic.py" "windows_togo_logic.py" "bcd_logic.py" "speed_logic.py" "universal_logic.py" "deps_logic.py" "lufux.desktop" "lufux.svg")
+source=("main.py" "windows_logic.py" "windows_togo_logic.py" "bcd_logic.py" "speed_logic.py" "universal_logic.py" "deps_logic.py" "io.github.mikhail.lufux.desktop" "lufux.svg")
 sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
@@ -23,6 +23,6 @@ package() {
     install -Dm644 "${srcdir}/universal_logic.py" "${pkgdir}/usr/share/lufux/universal_logic.py"
     install -Dm644 "${srcdir}/deps_logic.py" "${pkgdir}/usr/share/lufux/deps_logic.py"
 
-    install -Dm644 "${srcdir}/lufux.desktop" "${pkgdir}/usr/share/applications/lufux.desktop"
+    install -Dm644 "${srcdir}/io.github.mikhail.lufux.desktop" "${pkgdir}/usr/share/applications/io.github.mikhail.lufux.desktop"
     install -Dm644 "${srcdir}/lufux.svg" "${pkgdir}/usr/share/icons/hicolor/scalable/apps/lufux.svg"
 }

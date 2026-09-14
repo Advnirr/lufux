@@ -4,7 +4,9 @@ A stray brace or an unescaped one silently produces a script that does something
 other than intended, and the image index reaches a root shell.
 """
 import os
+import subprocess
 import sys
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -94,6 +96,38 @@ class LegacyBiosBoot(unittest.TestCase):
             with self.subTest(scheme=name):
                 self.assertIn('*[0-9]) PS="p"', script)
                 self.assertNotIn('"${DEV_PATH}1"', script)
+
+
+class LinuxDd(unittest.TestCase):
+    def test_a_failed_dd_says_why_in_the_log(self):
+        # run the real script with dd, wipefs, umount and sync replaced, against
+        # a temporary file: only the progress loop is under test
+        fakes = {
+            "umount": "exit 0",
+            "wipefs": "exit 0",
+            "sync": "exit 0",
+            "dd": ("echo \"dd: error writing 'target': No space left on device\" >&2\n"
+                   "echo '0+1 records in' >&2\necho '0+0 records out' >&2\nexit 1"),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            bindir = os.path.join(tmp, "bin")
+            os.mkdir(bindir)
+            for name, body in fakes.items():
+                path = os.path.join(bindir, name)
+                with open(path, "w") as f:
+                    f.write("#!/bin/sh\n" + body + "\n")
+                os.chmod(path, 0o755)
+            iso = os.path.join(tmp, "image.iso")
+            with open(iso, "wb") as f:
+                f.write(bytes(4096))
+            target = os.path.join(tmp, "target.img")
+            open(target, "wb").close()
+            env = dict(os.environ, PATH=bindir + os.pathsep + os.environ.get("PATH", ""), LANG="C")
+            result = subprocess.run(["bash", "-c", get_linux_script(), "lufux-test", iso, target],
+                                    capture_output=True, text=True, env=env, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("No space left on device", result.stdout)
+        self.assertNotIn("records", result.stdout)
 
 
 if __name__ == "__main__":

@@ -43,6 +43,9 @@ dd if="$ISO_PATH" of="$DEV_PATH" bs=4M status=progress 2>&1 | tr '\\r' '\\n' | w
         BYTES=$(echo "$line" | awk '{{print $1}}')
         PCT=$(awk -v b="$BYTES" -v s="$SIZE" 'BEGIN {{printf "%.1f", (b/s)*100}}')
         echo "${{PCT}}%"
+    elif [ -n "$line" ] && [[ $line != *" records "* ]]; then
+        # anything else dd says is a message - on a failed write, the reason
+        echo "$line"
     fi
 done
 

@@ -75,6 +75,18 @@ class RequiredCommands(unittest.TestCase):
             with self.subTest(base=base):
                 self.assertEqual([cmd for cmd in missing if cmd not in packages], [])
 
+    def test_windows_media_reports_every_tool_it_calls(self):
+        # each of these runs after the wipe; dropping one from the list must fail
+        with mock.patch.object(D, "_have_cmd", return_value=False):
+            self.assertEqual(D.check_dependencies(), [
+                "wimlib-imagex", "rsync", "parted", "pkexec", "mkfs.vfat", "mkfs.ntfs"])
+
+    def test_the_dd_path_needs_only_pkexec(self):
+        with mock.patch.object(D, "_have_cmd", return_value=False):
+            self.assertEqual(D.check_dependencies(windows=False), ["pkexec"])
+        with mock.patch.object(D, "_have_cmd", lambda name: name == "pkexec"):
+            self.assertEqual(D.check_dependencies(windows=False), [])
+
     def test_a_command_only_in_sbin_counts_as_present(self):
         # sbin is off a normal user's PATH on Debian, where shutil.which alone
         # reports parted missing while it is installed

@@ -50,6 +50,45 @@ def resolve_bin(name):
                 break
     return path or name
 
+
+def trusted_bin(name):
+    """The absolute path of a program pkexec is to run as root.
+
+    pkexec looks a bare name up in the caller's $PATH, before it clears the
+    environment, so handing it "bash" runs whichever bash that PATH lists
+    first - as root.
+    """
+    path = resolve_bin(name)
+    if not os.path.isabs(path):
+        raise FileNotFoundError(f"{name} is not in {', '.join(TRUSTED_BIN_DIRS)}")
+    return path
+
+
+def pkexec_argv(program, *args):
+    return [resolve_bin('pkexec'), trusted_bin(program), *args]
+
+
+def reselect(drives, chosen, first):
+    """The row to select once the drive list has been replaced, or None.
+
+    set_model() puts the selection back on the first row, so a stick plugged in
+    or pulled on step 1 used to move the choice silently onto another drive.
+    The choice now follows its device name, and if that drive is gone no drive
+    is chosen for the user rather than another one. Only a list that had no
+    drives before gets its first row picked.
+    """
+    names = [d.split()[0] for d in drives]
+    if chosen in names:
+        return names.index(chosen)
+    if chosen is None and first and drives:
+        return 0
+    return None
+
+
+def is_drive_row(text):
+    """False for the rows of the drive list that stand for no drive."""
+    return text not in (T["no_drives"], T["pick_drive"])
+
 def list_iso_editions(iso_path):
     """[(image index, name, size)] for the Windows images in an ISO, [] if unreadable.
 
@@ -215,6 +254,7 @@ def get_locale_dict():
             "step_iso": "Шаг 2: Выбор образа",
             "step_summary": "Шаг 3: Сводка",
             "no_drives": "Накопители не найдены",
+            "pick_drive": "Выберите накопитель",
             "select_iso": "Выбрать ISO-образ",
             "iso_not_selected": "Образ не выбран",
             "os_type": "Тип ОС:",
@@ -298,7 +338,9 @@ def get_locale_dict():
                 "остатке она может не пройти её до конца."
             ),
             "cap_log": "Нужно {needed}, на накопителе {size}",
-            "err_code": "Код:"
+            "err_code": "Код:",
+            "flash_failed": "Запись не завершилась. Подробности — в журнале.",
+            "scheme_dd": "Isohybrid (побайтовая копия через dd)"
         }
     return {
 # english locals
@@ -314,6 +356,7 @@ def get_locale_dict():
         "step_iso": "Step 2: Select ISO",
         "step_summary": "Step 3: Summary",
         "no_drives": "No drives found",
+        "pick_drive": "Select a drive",
         "select_iso": "Select ISO Image",
         "iso_not_selected": "No ISO selected",
         "os_type": "OS Type:",
@@ -397,7 +440,9 @@ def get_locale_dict():
             "not finish with that little room."
         ),
         "cap_log": "Needs {needed}, the drive holds {size}",
-        "err_code": "Code:"
+        "err_code": "Code:",
+        "flash_failed": "Flashing did not finish. The log has the details.",
+        "scheme_dd": "Isohybrid (dd block copy)"
     }
 
 T = get_locale_dict()
@@ -697,7 +742,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         if self.current_step == 0:
             self.btn_next.set_label(T["btn_next"])
             sel = self.drive_dropdown.get_selected_item()
-            is_valid_drive = sel is not None and T["no_drives"] not in sel.get_string()
+            is_valid_drive = sel is not None and is_drive_row(sel.get_string())
             self.btn_next.set_sensitive(is_valid_drive)
             
         elif self.current_step == 1:
@@ -736,7 +781,7 @@ class LufuxWindow(Adw.ApplicationWindow):
             scheme_text = T["scheme_gpt"] if scheme_idx == 0 else T["scheme_mbr"]
             self.sum_scheme.set_subtitle(scheme_text)
         else:
-            self.sum_scheme.set_subtitle("Isohybrid (dd block copy)")
+            self.sum_scheme.set_subtitle(T["scheme_dd"])
 
     # --- Confirmation and start ---
 
@@ -811,11 +856,13 @@ class LufuxWindow(Adw.ApplicationWindow):
             self.proceed_to_warnings()
 
     def proceed_to_warnings(self):
-        # deps check; GRUB is only needed for the MBR media it makes BIOS-bootable
-        bios_boot = (self.os_dropdown.get_selected() == 0
+        # deps check: dd needs none of the Windows tools, and GRUB is only needed
+        # for the MBR media it makes BIOS-bootable
+        windows = self.os_dropdown.get_selected() == 0
+        bios_boot = (windows
                      and not self.wtg_check.get_active()
                      and self.scheme_dropdown.get_selected() == 1)
-        missing = check_dependencies(bios_boot=bios_boot)
+        missing = check_dependencies(windows=windows, bios_boot=bios_boot)
         if missing:
             self.prompt_install_dependencies(missing)
         else:
@@ -854,7 +901,9 @@ class LufuxWindow(Adw.ApplicationWindow):
         # install_cmd is a list of argv lists, run without shell
         try:
             for cmd in self.install_cmd:
-                argv = [resolve_bin(cmd[0]), *cmd[1:]]
+                # cmd is ["pkexec", program, ...]; the program is pinned like
+                # every other one that runs as root
+                argv = pkexec_argv(cmd[1], *cmd[2:])
                 proc = subprocess.run(argv, text=True, capture_output=True, check=False)  # nosec B603
                 if proc.returncode != 0:
                     GLib.idle_add(
@@ -991,7 +1040,7 @@ class LufuxWindow(Adw.ApplicationWindow):
                       'umount -l "$m" 2>/dev/null; rmdir "$m" 2>/dev/null; done')
             try:
                 ok = subprocess.run(  # nosec B603
-                    [resolve_bin('pkexec'), 'bash', '-c', script, 'lufux-cleanup', *mounts],
+                    pkexec_argv('bash', '-c', script, 'lufux-cleanup', *mounts),
                     stderr=subprocess.DEVNULL, check=False,
                 ).returncode == 0
             except OSError:
@@ -1041,11 +1090,10 @@ class LufuxWindow(Adw.ApplicationWindow):
         # the argv of the dd/rsync/wimlib it spawns, so matching on it leaves
         # them reparented and still writing to the device. The worker runs in
         # its own session, so killing the group takes the children with it.
-        argv = [resolve_bin('pkexec'), 'pkill']
-        argv += ['-g', str(pgid)] if pgid is not None else ['-f', WORKER_TAG]
+        target = ['-g', str(pgid)] if pgid is not None else ['-f', WORKER_TAG]
         try:
             code = subprocess.run(  # nosec B603
-                argv, stderr=subprocess.DEVNULL, check=False,
+                pkexec_argv('pkill', *target), stderr=subprocess.DEVNULL, check=False,
             ).returncode
         except OSError:
             code = -1
@@ -1155,8 +1203,21 @@ class LufuxWindow(Adw.ApplicationWindow):
         if self.current_step == 0:
             new_drives = self.get_usb_drives()
             if new_drives != self.last_drives:
+                first = self.last_drives in ([], [T["no_drives"]])
+                sel = self.drive_dropdown.get_selected_item()
+                chosen = None
+                if sel is not None and is_drive_row(sel.get_string()):
+                    chosen = sel.get_string().split()[0]
                 self.last_drives = new_drives
-                self.drive_dropdown.set_model(Gtk.StringList.new(new_drives))
+                row = reselect(new_drives, chosen, first)
+                rows = new_drives
+                if row is None and new_drives != [T["no_drives"]]:
+                    # a DropDown always selects some row - INVALID_LIST_POSITION
+                    # snaps back to the first - so "no drive" is a row of its own
+                    rows = [T["pick_drive"], *new_drives]
+                    row = 0
+                self.drive_dropdown.set_model(Gtk.StringList.new(rows))
+                self.drive_dropdown.set_selected(row or 0)
                 self.update_ui_state()
         return True
 
@@ -1284,7 +1345,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         # argv[0] so kill_worker can find the root process.
         try:
             self.proc = subprocess.Popen(  # nosec B603
-                [resolve_bin('pkexec'), 'bash', '-c', script, WORKER_TAG, iso, dev, scheme],
+                pkexec_argv('bash', '-c', script, WORKER_TAG, iso, dev, scheme),
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT, text=True,
                 start_new_session=True,
@@ -1331,14 +1392,18 @@ class LufuxWindow(Adw.ApplicationWindow):
                 if self.proc.returncode == 126:
                     GLib.idle_add(self.append_log, T["canceled"])
                     self.is_flashing = False
+                    GLib.idle_add(self.show_flash_failed, T["canceled"], "")
                 elif self.proc.returncode != 0:
                     GLib.idle_add(self.append_log, f"{T['err_crit']} ({T['err_code']} {self.proc.returncode})")
                     self.is_flashing = False
+                    GLib.idle_add(self.show_flash_failed, T["err_crit"],
+                                  f"{T['flash_failed']}\n\n{T['err_code']} {self.proc.returncode}")
         # background thread: anything escaping here freezes the GUI at the
         # last reported percentage with is_flashing still True
         except Exception as e:  # noqa: BLE001
             GLib.idle_add(self.append_log, f"{T['err_crit']} {e}")
             self.is_flashing = False
+            GLib.idle_add(self.show_flash_failed, T["err_crit"], f"{T['flash_failed']}\n\n{e}")
 
     # --- Drive speed gate (Windows To Go only) ---
 
@@ -1398,6 +1463,17 @@ class LufuxWindow(Adw.ApplicationWindow):
         canceled.add_response("close", T["btn_close_app"])
         canceled.add_response("restart", T["btn_restart"])
         canceled.choose(self, None, self.on_error_response)
+
+    def show_flash_failed(self, heading, body):
+        # a failed flash used to leave only a log line behind: this page hides
+        # the navigation and has no Done button, so the app had to be closed
+        # before anything could be tried again
+        self.update_flash_progress(0.0)
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        dialog.add_response("close", T["btn_close_app"])
+        dialog.add_response("restart", T["btn_restart"])
+        dialog.choose(self, None, self.on_error_response)
+        return False
 
     def on_flash_success(self):
         self.is_flashing = False
