@@ -1,7 +1,7 @@
-"""The version is written in four places; this fails when they drift apart.
+"""The version is written in six places; this fails when they drift apart.
 
-main.py shows it in the About dialog, the PKGBUILD names the package, and both
-READMEs carry a badge. Shipping with any of them stale has happened before.
+main.py, the PKGBUILD, the RPM spec, the Debian control file and both READMEs.
+Shipping with one of them stale has happened before.
 """
 import os
 import re
@@ -30,6 +30,10 @@ class Version(unittest.TestCase):
 
     def test_the_package_is_built_at_the_same_version(self):
         self.assertEqual(find(r"^pkgver=(\S+)", "PKGBUILD"), self.version)
+
+    def test_the_deb_and_rpm_agree(self):
+        self.assertEqual(find(r"^Version:\s+(\S+)", "packaging/lufux.spec"), self.version)
+        self.assertEqual(find(r"^Version: (\S+)", "packaging/deb/control"), self.version)
 
     def test_both_readme_badges_agree(self):
         for name in ("README.md", "README_ru.md"):

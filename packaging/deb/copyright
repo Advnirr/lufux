@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: lufux
+Source: https://github.com/Advnirr/lufux
+
+Files: *
+Copyright: Mikhail Mlhcnn
+License: GPL-3.0-or-later
+ On Debian systems, the full text of the GNU General Public License
+ version 3 can be found in /usr/share/common-licenses/GPL-3.

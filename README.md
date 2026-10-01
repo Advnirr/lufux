@@ -4,7 +4,7 @@
 
 **English | [Русский](README_ru.md)**
 
-A minimalist, universal, and functional GUI tool to create bootable USB drives on Linux: ISOHybrid images, Windows installation media, and Windows To Go. Built with Python, GTK4, and Libadwaita.
+A simple GUI tool for making bootable USB drives on Linux: ISOHybrid images, Windows installers and Windows To Go. Built with Python, GTK4 and Libadwaita.
 
 <p align="left">
   <a href="https://github.com/Advnirr/lufux/releases">
@@ -32,7 +32,7 @@ A minimalist, universal, and functional GUI tool to create bootable USB drives o
 To run Lufux, you need the following system packages:
 `python-gobject`, `gtk4`, `libadwaita`, `wimlib` (for wimlib-imagex), `rsync`, `parted`, `polkit` (for pkexec), `dosfstools` (for mkfs.vfat), `ntfs-3g` (for mkfs.ntfs), and `grub` for MBR/Legacy BIOS media only (`grub2-common` + `grub-pc-bin` on Debian/Ubuntu, `grub2-tools` + `grub2-pc-modules` on Fedora).
 
-`udisks2` is optional. It is what lets Lufux read the edition list out of an ISO without asking for a password; without it, Windows To Go deploys the first edition in the image.
+`udisks2` is optional. With it, Lufux reads the edition list from an ISO without asking for a password. Without it, Windows To Go installs the first edition in the image.
 
 ## 🚀 Installation
 
@@ -47,45 +47,61 @@ yay -S lufux-git
 
 **Installation via PKGBUILD**
 
-Since Lufux provides a native `PKGBUILD`, installation on Arch-based distributions is straightforward:
+On Arch and Arch-based distributions you can build the package from the `PKGBUILD`:
 ```bash
 git clone https://github.com/Advnirr/lufux.git
 cd lufux
 makepkg -si
 ```
 
+### Debian / Ubuntu
+
+Download `lufux_<version>_all.deb` from [Releases](https://github.com/Advnirr/lufux/releases) and install it:
+```bash
+sudo apt install ./lufux_*_all.deb
+```
+Works on Debian 13 and Ubuntu 24.04 or newer.
+
+### Fedora
+
+Download the `.rpm` from [Releases](https://github.com/Advnirr/lufux/releases) and install it:
+```bash
+sudo dnf install ./lufux-*.noarch.rpm
+```
+
+You can also build both packages with `tools/build-packages.sh`. It needs `dpkg-deb` and `rpmbuild` and puts the files in `dist/`.
+
 ### Manual Run (Any Distro)
 You can run Lufux directly from the source code without installing it system-wide:
 ```bash
 git clone https://github.com/Advnirr/lufux.git
 cd lufux
-python main.py
+python3 main.py
 ```
-Note: Make sure you have the required system dependencies installed.
+Install the dependencies listed above first.
 
 ## 🧪 Tests
 
 ```bash
-python -m unittest discover -s tests
+python3 -m unittest discover -s tests
 ```
 
-They cover the parts that can be checked without a drive: the BCD store lufux
-writes by hand (built, then read back with the repo's own hive parser), reading
-the GPT GUIDs, the capacity check, dependency detection and the drive
-benchmark. Nothing in them touches a real device or needs root.
+They cover what can be checked without a drive: the BCD store Lufux builds,
+reading GPT GUIDs, the capacity check, dependency detection and the speed test.
+They never touch a real device and do not need root.
 
 ## ⚠️ Warnings
 
 * **The selected drive is erased completely,** in every mode. Check the device name on the summary page before you start.
-* **Drives the system sees as NVMe are not listed.** That covers native Thunderbolt / USB4 enclosures, which pass the SSD through as PCIe rather than as a USB disk. A normal USB-C enclosure shows up as a USB disk and works; `lsblk -o NAME,TRAN` says `usb` for those. The filter is what keeps an internal system drive out of the list, and both look the same from here, so it stays until someone with that hardware can help test a safe way to tell them apart.
-* **Wait for the Done button before pulling the drive out.** Lufux unmounts everything before it reports success. Closing the app mid-flash is safe too, the drive is simply left unwritten.
-* **A long flash looks like a frozen window.** Only phase names reach the log, so the progress bar is the one thing that moves.
-* **Windows To Go needs a fast drive.** Writing takes hours, and Windows then runs off that drive, so a cheap USB 2.0 stick is bad at both. Lufux measures the drive first and warns you if it will not keep up.
-* **If Windows To Go bugchecks with INACCESSIBLE_BOOT_DEVICE (0x7B), try another USB port.** A good drive can fail on one controller and boot fine from a port on another. `lsusb -t` shows which bus the drive is on, `grep -H . /sys/bus/usb/devices/usb*/serial` shows which controller each bus belongs to.
+* **NVMe drives are not listed.** This also hides Thunderbolt / USB4 enclosures, which connect the SSD over PCIe instead of USB. A normal USB-C enclosure works: `lsblk -o NAME,TRAN` shows `usb` for it. The filter keeps the internal system drive out of the list, and Lufux cannot tell the two apart yet. Fixing this needs someone with that hardware to help test.
+* **Wait for the Done button before pulling the drive out.** Lufux unmounts everything before it reports success. Closing the app during a flash is also safe. The drive is just left unwritten.
+* **During a long flash the window may look frozen.** Only stage names go to the log, so the progress bar is the only thing that moves.
+* **Windows To Go needs a fast drive.** Writing takes hours, and then Windows runs from that drive. A cheap USB 2.0 stick is bad at both. Lufux tests the drive first and warns you if it is too slow.
+* **If Windows To Go crashes with INACCESSIBLE_BOOT_DEVICE (0x7B), try another USB port.** A working drive can fail on one USB controller and boot fine on another. `lsusb -t` shows which bus the drive is on, and `grep -H . /sys/bus/usb/devices/usb*/serial` shows which controller each bus belongs to.
 
 ## 💜 Support
 
-If Lufux helped you write a bootable drive, you can support continued development directly:
+If Lufux helped you, you can support development:
 
 **USDT** · TON network
 

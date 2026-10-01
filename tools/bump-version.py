@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Set the version everywhere it is written: bump-version.py 1.3.7
 
-main.py shows it in the About dialog, the PKGBUILD names the package, and both
-READMEs carry a release badge. tests/test_version.py fails when they disagree.
+It lives in main.py, the PKGBUILD, the RPM spec, the Debian control file and
+both READMEs. tests/test_version.py fails when they disagree.
 
 What this does not touch, because it lives outside the repo: the AUR package,
 whose pkgver() derives from the git tag. Tag and release first, then update it.
@@ -13,12 +13,14 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# file, pattern with the version as its one group, replacement template
+# file, pattern with the version as its one group
 EDITS = [
-    ("main.py", r'^APP_VERSION = "([\d.]+)"', 'APP_VERSION = "{v}"'),
-    ("PKGBUILD", r"^pkgver=([\d.]+)", "pkgver={v}"),
-    ("README.md", r"badge/release-v([\d.]+)--stable", "badge/release-v{v}--stable"),
-    ("README_ru.md", r"badge/release-v([\d.]+)--stable", "badge/release-v{v}--stable"),
+    ("main.py", r'^APP_VERSION = "([\d.]+)"'),
+    ("PKGBUILD", r"^pkgver=([\d.]+)"),
+    ("packaging/lufux.spec", r"^Version:\s+([\d.]+)"),
+    ("packaging/deb/control", r"^Version: ([\d.]+)"),
+    ("README.md", r"badge/release-v([\d.]+)--stable"),
+    ("README_ru.md", r"badge/release-v([\d.]+)--stable"),
 ]
 
 
@@ -27,7 +29,7 @@ def main(argv):
         raise SystemExit("usage: bump-version.py X.Y.Z")
     version = argv[1]
 
-    for name, pattern, template in EDITS:
+    for name, pattern in EDITS:
         path = os.path.join(ROOT, name)
         with open(path, encoding="utf-8") as f:
             text = f.read()
@@ -38,7 +40,7 @@ def main(argv):
             print(f"{name}: already {version}")
             continue
         with open(path, "w", encoding="utf-8") as f:
-            f.write(text[:match.start()] + template.format(v=version) + text[match.end():])
+            f.write(text[:match.start(1)] + version + text[match.end(1):])
         print(f"{name}: {match.group(1)} -> {version}")
 
     print("\nStill to do by hand: the changelog, the tag v{v}-stable, the GitHub "
