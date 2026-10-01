@@ -13,9 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     container: debian:trixie
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: sh tools/build-packages.sh deb
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deb
           path: dist/*.deb
@@ -25,9 +25,9 @@ jobs:
     container: fedora:latest
     steps:
       - run: dnf -y install rpm-build tar gzip
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: sh tools/build-packages.sh rpm
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: rpm
           path: dist/*.rpm
@@ -37,7 +37,7 @@ jobs:
     needs: [deb, rpm]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
