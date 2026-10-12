@@ -14,12 +14,12 @@ finish-args:
   - --filesystem=/run/media
   - --filesystem=/media
 modules:
-  # mkntfs and libntfs-3g for Windows To Go, patched to work on the udisks fd
+  # libntfs-3g for wimlib, Windows To Go needs its NTFS mode
   - name: ntfs-3g
     config-opts:
       - --exec-prefix=/app
-      - --sbindir=/app/bin
       - --disable-ntfs-3g
+      - --disable-ntfsprogs
       - --disable-mount-helper
       - --disable-ldconfig
       - --disable-static
@@ -32,8 +32,6 @@ modules:
       - type: archive
         url: https://download.tuxera.com/opensource/ntfs-3g_ntfsprogs-2022.10.3.tgz
         sha256: f20e36ee68074b845e3629e6bced4706ad053804cbaf062fbae60738f854170c
-      - type: patch
-        path: ntfs-3g-fd.patch
 
   - name: wimlib
     config-opts:

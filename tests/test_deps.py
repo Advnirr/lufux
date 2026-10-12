@@ -34,10 +34,8 @@ class InstallCommand(unittest.TestCase):
                          [["pkexec", "dnf", "install", "-y", "ntfsprogs", "wimlib-utils"]])
 
     def test_packages_are_deduplicated_and_ordered(self):
-        # mkfs.vfat and mkfs.ntfs on Debian are two packages, parted is one,
-        # and asking twice must not install twice
-        cmd = self.cmd(["parted", "parted", "mkfs.vfat"])
-        self.assertEqual(cmd[0][-2:], ["dosfstools", "parted"])
+        cmd = self.cmd(["mkfs.ntfs", "mkfs.ntfs", "mkfs.vfat"])
+        self.assertEqual(cmd[0][-2:], ["dosfstools", "ntfs-3g"])
 
     def test_one_command_can_need_two_packages(self):
         # Debian and Fedora ship grub-mkimage and the BIOS modules separately
@@ -52,16 +50,12 @@ class InstallCommand(unittest.TestCase):
         self.assertIsNone(self.cmd(["something-not-in-the-map"]))
 
     def test_an_unrecognised_distro_is_not_guessed_at(self):
-        self.assertIsNone(self.cmd(["parted"], base="unknown"))
-
-    def test_without_pkexec_there_is_nothing_to_elevate_with(self):
-        # installing the elevation tool would itself need elevation
-        self.assertIsNone(self.cmd(["pkexec", "parted"]))
+        self.assertIsNone(self.cmd(["mkfs.vfat"], base="unknown"))
 
     def test_the_command_is_argv_lists_never_a_shell_string(self):
         for base in ("arch", "debian", "fedora"):
             with self.subTest(base=base):
-                for step in self.cmd(["parted", "grub-mkimage"], base=base):
+                for step in self.cmd(["mkfs.vfat", "grub-mkimage"], base=base):
                     self.assertIsInstance(step, list)
                     self.assertTrue(all(isinstance(arg, str) for arg in step))
                     self.assertEqual(step[0], "pkexec")
@@ -75,17 +69,11 @@ class RequiredCommands(unittest.TestCase):
             with self.subTest(base=base):
                 self.assertEqual([cmd for cmd in missing if cmd not in packages], [])
 
-    def test_windows_media_reports_every_tool_it_calls(self):
-        # each of these runs after the wipe; dropping one from the list must fail
+    def test_gpt_media_and_windows_to_go_need_only_wimlib(self):
         with mock.patch.object(D, "_have_cmd", return_value=False):
-            self.assertEqual(D.check_dependencies(), [
-                "wimlib-imagex", "rsync", "parted", "pkexec", "mkfs.vfat", "mkfs.ntfs"])
-
-    def test_gpt_media_needs_only_wimlib(self):
-        with mock.patch.object(D, "_have_cmd", return_value=False):
-            self.assertEqual(D.check_dependencies(udisks=True), ["wimlib-imagex"])
+            self.assertEqual(D.check_dependencies(), ["wimlib-imagex"])
         with mock.patch.object(D, "_have_cmd", lambda name: name == "wimlib-imagex"):
-            self.assertEqual(D.check_dependencies(udisks=True), [])
+            self.assertEqual(D.check_dependencies(), [])
 
     def test_the_dd_path_needs_nothing(self):
         with mock.patch.object(D, "_have_cmd", return_value=False):
@@ -105,7 +93,7 @@ class BiosGrub(unittest.TestCase):
         # every other tool is present, so only the GRUB checks decide
         with mock.patch.object(D, "_have_cmd", lambda name: name in have_cmds or not name.startswith("grub")), \
              mock.patch.object(D.os.path, "isfile", lambda path: have_module and path in D.GRUB_BIOS_MODULES):
-            return D.check_dependencies(bios_boot=bios_boot, udisks=True)
+            return D.check_dependencies(bios_boot=bios_boot)
 
     def test_only_mbr_media_asks_for_grub(self):
         self.assertEqual(self.check(bios_boot=False), [])
@@ -121,7 +109,7 @@ class BiosGrub(unittest.TestCase):
     def test_mbr_media_does_not_need_wimlib(self):
         with mock.patch.object(D, "_have_cmd", lambda name: name == "grub-mkimage"), \
              mock.patch.object(D.os.path, "isfile", return_value=True):
-            self.assertEqual(D.check_dependencies(bios_boot=True, udisks=True), [])
+            self.assertEqual(D.check_dependencies(bios_boot=True), [])
 
 
 if __name__ == "__main__":

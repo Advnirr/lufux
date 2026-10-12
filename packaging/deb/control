@@ -5,7 +5,7 @@ Maintainer: Mikhail Mlhcnn <mikhail@advnirr.org>
 Section: admin
 Priority: optional
 Homepage: https://github.com/Advnirr/lufux
-Depends: python3, python3-gi, gir1.2-gtk-4.0 (>= 4.10), gir1.2-adw-1 (>= 1.5), wimtools, rsync, parted, pkexec | policykit-1, dosfstools, ntfs-3g, udisks2
+Depends: python3, python3-gi, gir1.2-gtk-4.0 (>= 4.10), gir1.2-adw-1 (>= 1.5), wimtools, dosfstools, ntfs-3g, udisks2
 Suggests: grub-common, grub-pc-bin
 Description: Create bootable USB drives, including Windows To Go
  A GTK4/libadwaita tool that writes ISOHybrid images with dd, builds Windows

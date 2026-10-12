@@ -30,7 +30,7 @@ A simple GUI tool for making bootable USB drives on Linux: ISOHybrid images, Win
 ## 📦 Dependencies
 
 To run Lufux, you need the following system packages:
-`python-gobject`, `gtk4`, `libadwaita`, `wimlib` (for wimlib-imagex), `rsync`, `parted`, `polkit` (for pkexec), `dosfstools` (for mkfs.vfat), `ntfs-3g` (for mkfs.ntfs), `udisks2` (writes Linux images and lists drives), and `grub` for MBR/Legacy BIOS media only (`grub-common` + `grub-pc-bin` on Debian/Ubuntu, `grub2-tools` + `grub2-pc-modules` on Fedora).
+`python-gobject`, `gtk4`, `libadwaita`, `wimlib`, `dosfstools`, `ntfs-3g`, `udisks2` (all disk work goes through it, no root needed), and `grub` for MBR/Legacy BIOS media only (`grub-common` + `grub-pc-bin` on Debian/Ubuntu, `grub2-tools` + `grub2-pc-modules` on Fedora).
 
 ## 🚀 Installation
 

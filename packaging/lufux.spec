@@ -12,9 +12,6 @@ Requires:       python3-gobject
 Requires:       gtk4 >= 4.10
 Requires:       libadwaita >= 1.5
 Requires:       wimlib-utils
-Requires:       rsync
-Requires:       parted
-Requires:       polkit
 Requires:       dosfstools
 Requires:       ntfsprogs
 Requires:       udisks2

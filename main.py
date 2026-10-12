@@ -12,13 +12,7 @@ from pathlib import Path
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "lufux"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
-# argv[0] of the root process, used by pkill -f to stop it
-WORKER_TAG = "lufux-flash-worker"
-
 DEFAULT_CONFIG = {"theme": 0, "lang": "", "verify": True}
-
-# Windows To Go runs a root script outside the Flatpak
-IN_FLATPAK = os.path.exists("/.flatpak-info")
 
 # What a drive has to manage before Windows To Go is worth deploying onto it.
 # The random figure is the one that decides: a stick doing 8 MB/s sequentially
@@ -197,7 +191,7 @@ from gi.repository import Gtk, Adw, GLib, Gio, Gdk
 
 # importing logic
 from windows_logic import write_windows
-from windows_togo_logic import get_windows_togo_script, write_windows_togo
+from windows_togo_logic import write_windows_togo
 from universal_logic import write_image
 from udisks_logic import list_drives, device_size, is_canceled, mounted_iso, can_format
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
@@ -261,18 +255,11 @@ def get_locale_dict():
             "canceled": "Отменено пользователем",
             "err_crit": "Критическая ошибка:",
             "console_ready": "Инициализация... Ожидание старта.\n",
-            "stale_title": "Остатки прошлой записи",
-            "stale_body": "Прошлая запись не завершилась и оставила смонтированные каталоги. Они держат образ и loop-устройство занятыми. Убрать?",
-            "stale_yes": "Убрать",
-            "stale_no": "Оставить",
-            "stale_done": "Остатки убраны",
-            "stale_failed": "Не удалось убрать остатки",
             "interrupt_title": "Прервать прогресс записи?",
             "interrupt_body": "Процесс записи образа все еще идет. Вы уверены, что хотите прервать его? Это приведет к неработоспособности накопителя до повторного форматирования",
             "interrupt_yes": "Да, прервать",
             "err_interrupted": "Прервано пользователем",
             "stopping": "Остановка процесса записи...",
-            "err_kill_failed": "Не удалось остановить процесс записи — он может всё ещё писать на накопитель. Не извлекайте его.",
             "btn_restart": "Начать заново",
             "btn_close_app": "Закрыть программу",
             "btn_close_dialog": "Закрыть",
@@ -370,18 +357,11 @@ def get_locale_dict():
         "canceled": "Canceled by user",
         "err_crit": "Critical Error:",
         "console_ready": "Initialization... Waiting to start.\n",
-        "stale_title": "Leftovers from an earlier flash",
-        "stale_body": "An earlier flash did not finish and left its mount points behind. They keep the ISO and a loop device busy. Clean them up?",
-        "stale_yes": "Clean up",
-        "stale_no": "Leave them",
-        "stale_done": "Leftovers cleaned up",
-        "stale_failed": "Could not clean up the leftovers",
         "interrupt_title": "Interrupt flashing progress?",
         "interrupt_body": "The image writing process is still ongoing. Are you sure you want to interrupt it? The drive will be unbootable.",
         "interrupt_yes": "Yes, interrupt",
         "err_interrupted": "Interrupted by user",
         "stopping": "Stopping the flashing process...",
-        "err_kill_failed": "Could not stop the flashing process - it may still be writing to the drive. Do not unplug it.",
         "btn_restart": "Restart",
         "btn_close_app": "Close Program",
         "btn_close_dialog": "Close",
@@ -434,7 +414,7 @@ def get_locale_dict():
 T = get_locale_dict()
 
 class LufuxWindow(Adw.ApplicationWindow):
-    def __init__(self, iso_path=None, drive=None, rebuilt=False, **kwargs):
+    def __init__(self, iso_path=None, drive=None, **kwargs):
         super().__init__(**kwargs)
         self.set_title(T["title"])
         self.set_default_size(600, 520)
@@ -448,7 +428,6 @@ class LufuxWindow(Adw.ApplicationWindow):
 
         self.is_flashing = False
         self.speed_refused = False
-        self.proc = None
         # background jobs other than the flash that report back to this window
         self.jobs = 0
 
@@ -527,10 +506,6 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.nav_box.append(self.btn_next)
 
         self.update_ui_state()
-        # after the window is up, so the dialog has something to attach to;
-        # a window rebuilt for a new language has asked already
-        if not rebuilt:
-            GLib.idle_add(self.check_stale_leftovers)
 
         self.last_drives = []
         self.auto_refresh_drives()
@@ -908,11 +883,11 @@ class LufuxWindow(Adw.ApplicationWindow):
         bios_boot = (windows
                      and not self.wtg_check.get_active()
                      and self.scheme_dropdown.get_selected() == 1)
-        missing = check_dependencies(windows=windows, bios_boot=bios_boot,
-                                     udisks=not wtg or IN_FLATPAK)
-        # udisks formats NTFS with the host's mkntfs, which only it can see
-        if bios_boot and not can_format("ntfs"):
-            missing.append("mkfs.ntfs")
+        missing = check_dependencies(windows=windows, bios_boot=bios_boot)
+        # udisks runs the host's mkfs, which only it can see
+        if windows:
+            needs = ("ntfs",) if bios_boot else ("vfat", "ntfs") if wtg else ("vfat",)
+            missing += [f"mkfs.{fs}" for fs in needs if not can_format(fs)]
         if missing:
             self.prompt_install_dependencies(missing)
         else:
@@ -1025,92 +1000,6 @@ class LufuxWindow(Adw.ApplicationWindow):
                 daemon=True,
             ).start()
 
-    # --- Leftovers from an earlier flash ---
-
-    # The scripts mount through mktemp -d, so every leftover has one of these
-    # prefixes followed by mktemp's six characters. Cleanup runs as root, so
-    # match the whole name and never a caller-supplied string.
-    STALE_MOUNT_RE = re.compile(r"^/tmp/lufux_(?:iso|usb|win|efi)\.[A-Za-z0-9]{6}$")
-
-    @staticmethod
-    def find_stale_mounts():
-        """Mount points left behind by a flash that did not finish."""
-        found = []
-        try:
-            with open("/proc/self/mountinfo", encoding="utf-8") as f:
-                for line in f:
-                    fields = line.split(" ")
-                    if len(fields) < 5:
-                        continue
-                    # mountinfo escapes spaces and the like as octal
-                    target = fields[4].encode().decode("unicode_escape")
-                    if LufuxWindow.STALE_MOUNT_RE.match(target):
-                        found.append(target)
-        except OSError:
-            return []
-        return sorted(set(found))
-
-    def worker_running(self):
-        try:
-            return subprocess.run(  # nosec B603
-                [resolve_bin('pgrep'), '-f', WORKER_TAG],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                check=False,
-            ).returncode == 0
-        except OSError:
-            return False
-
-    def check_stale_leftovers(self):
-        # a flash of our own still running owns these; only offer to clean up
-        # what nothing is using
-        if self.worker_running():
-            return False
-        self.stale_mounts = self.find_stale_mounts()
-        if not self.stale_mounts:
-            return False
-        body = T["stale_body"] + "\n\n" + "\n".join(self.stale_mounts)
-        dialog = Adw.AlertDialog(heading=T["stale_title"], body=body)
-        dialog.add_response("no", T["stale_no"])
-        dialog.add_response("yes", T["stale_yes"])
-        dialog.set_response_appearance("yes", Adw.ResponseAppearance.SUGGESTED)
-        dialog.choose(self, None, self.on_stale_response)
-        return False
-
-    def on_stale_response(self, dialog, result):
-        if dialog.choose_finish(result) != "yes":
-            return
-        self.jobs += 1
-        # pkexec pops a polkit dialog, which would freeze the GTK main loop
-        threading.Thread(target=self.clean_stale_thread,
-                         args=(list(self.stale_mounts),), daemon=True).start()
-
-    def clean_stale_thread(self, mounts):
-        # re-validate here: this list is about to be handed to root
-        mounts = [m for m in mounts if self.STALE_MOUNT_RE.match(m)]
-        ok = False
-        if mounts:
-            # umount frees the loop device with it, mount(8) having set autoclear
-            # plain umount first: a lazy detach would also hide a mount that
-            # something is legitimately still using
-            script = ('for m in "$@"; do umount "$m" 2>/dev/null || '
-                      'umount -l "$m" 2>/dev/null; rmdir "$m" 2>/dev/null; done')
-            try:
-                ok = subprocess.run(  # nosec B603
-                    pkexec_argv('bash', '-c', script, 'lufux-cleanup', *mounts),
-                    stderr=subprocess.DEVNULL, check=False,
-                ).returncode == 0
-            except OSError:
-                ok = False
-        left = self.find_stale_mounts()
-        GLib.idle_add(self.show_stale_result, ok and not left)
-
-    def show_stale_result(self, ok):
-        self.jobs -= 1
-        dialog = Adw.AlertDialog(heading=T["stale_done"] if ok else T["stale_failed"], body="")
-        dialog.add_response("ok", T["btn_close_dialog"])
-        dialog.choose(self, None, lambda d, r: d.choose_finish(r))
-        return False
-
     # --- Window closing ---
 
     def on_close_request(self, window):
@@ -1129,56 +1018,12 @@ class LufuxWindow(Adw.ApplicationWindow):
             self.kill_worker()
 
     def kill_worker(self):
+        # the writer runs in this process and checks the flag
         self.is_flashing = False
-        if self.proc is None:
-            # udisks writers run in this process: udisks_worker sees the flag
-            self.append_log(T["stopping"])
-            return
-        proc = self.proc
-        pgid = None
-        if proc:
-            try:
-                pgid = os.getpgid(proc.pid)
-            except OSError:
-                pgid = None
-        # pkexec pops a polkit dialog, which would freeze the GTK main loop for
-        # as long as it is up, so do the kill on a thread and report after
         self.append_log(T["stopping"])
-        self.jobs += 1
-        threading.Thread(target=self.kill_worker_thread, args=(proc, pgid), daemon=True).start()
 
-    def kill_worker_thread(self, proc, pgid):
-        # WORKER_TAG only ever appears in the argv of the root bash, never in
-        # the argv of the dd/rsync/wimlib it spawns, so matching on it leaves
-        # them reparented and still writing to the device. The worker runs in
-        # its own session, so killing the group takes the children with it.
-        target = ['-g', str(pgid)] if pgid is not None else ['-f', WORKER_TAG]
-        try:
-            code = subprocess.run(  # nosec B603
-                pkexec_argv('pkill', *target), stderr=subprocess.DEVNULL, check=False,
-            ).returncode
-        except OSError:
-            code = -1
-
-        # pkill: 0 = signalled, 1 = nothing matched (already gone).
-        # pkexec: 126 = authentication dismissed or denied, 127 = failed to run.
-        killed = code in (0, 1)
-
-        if proc:
-            try:
-                proc.kill()
-            except (ProcessLookupError, OSError):
-                pass
-
-        GLib.idle_add(self.kill_done, killed)
-
-    def kill_done(self, killed):
-        self.jobs -= 1
-        self.show_interrupted_error(killed)
-
-    def show_interrupted_error(self, killed=True):
-        body = T["err_interrupted"] if killed else T["err_kill_failed"]
-        err_dialog = Adw.AlertDialog(heading=T["err_crit"], body=body)
+    def show_interrupted_error(self):
+        err_dialog = Adw.AlertDialog(heading=T["err_crit"], body=T["err_interrupted"])
         err_dialog.add_response("close", T["btn_close_app"])
         err_dialog.add_response("restart", T["btn_restart"])
         err_dialog.set_response_appearance("close", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -1273,7 +1118,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         sel = self.drive_dropdown.get_selected_item()
         drive = sel.get_string().split()[0] if sel and is_drive_row(sel.get_string()) else None
         win = LufuxWindow(application=self.get_application(), iso_path=self.iso_path,
-                          drive=drive, rebuilt=True)
+                          drive=drive)
         win.set_default_size(self.get_width(), self.get_height())
         win.present()
         GLib.source_remove(self.refresh_id)
@@ -1461,91 +1306,22 @@ class LufuxWindow(Adw.ApplicationWindow):
         if done:
             GLib.idle_add(self.on_flash_success)
         elif not self.speed_refused:
-            GLib.idle_add(self.show_interrupted_error, True)
+            GLib.idle_add(self.show_interrupted_error)
 
     def worker_thread(self, iso, dev, os_idx, scheme, wtg, img_index=1, verify=False):
-        if not wtg or IN_FLATPAK:
-            self.proc = None
-            if os_idx != 0:
-                self.udisks_worker(write_image, iso, dev, verify)
-            elif wtg:
-                self.udisks_worker(write_windows_togo, iso, dev, img_index, self.ask_speed)
-            else:
-                self.udisks_worker(write_windows, iso, dev, scheme)
-            return
-        script = get_windows_togo_script(img_index)
-
-        # run via bash -c, pass iso/dev/scheme as $1/$2/$3 instead of a temp
-        # file, so the iso name can't be interpreted by a shell. WORKER_TAG is
-        # argv[0] so kill_worker can find the root process.
-        try:
-            self.proc = subprocess.Popen(  # nosec B603
-                pkexec_argv('bash', '-c', script, WORKER_TAG, iso, dev, scheme),
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, text=True,
-                start_new_session=True,
-            )
-
-            for line in iter(self.proc.stdout.readline, ''):
-                if not self.is_flashing:
-                    break
-
-                line = line.strip()
-                if line.startswith("STATUS:"):
-                    msg = line.replace("STATUS:", "").strip()
-                    if msg == "DONE":
-                        GLib.idle_add(self.on_flash_success)
-                    else:
-                        # each command counts its own phase from zero, so drop
-                        # the previous one's percentage here: otherwise mkntfs
-                        # finishing at 100% leaves the bar full for the twenty
-                        # minutes before wimlib prints a percentage of its own
-                        GLib.idle_add(self.update_flash_progress, 0.0, msg)
-                        GLib.idle_add(self.append_log, f"[*] {msg}")
-                elif line.startswith("SPEEDTEST:"):
-                    # the worker is now blocked reading its stdin: it deploys
-                    # or gives up on whatever answer goes back
-                    GLib.idle_add(self.on_speedtest, line)
-                else:
-                    # a loose [\d.]+ also matches "1.2.3" out of a version
-                    # string, and float() would then raise inside this thread
-                    match = re.search(r'(\d+(?:\.\d+)?)%', line)
-                    if match:
-                        pct = float(match.group(1)) / 100.0
-                        # percentage lines never reach the log, so on a long
-                        # deployment the bar is the only thing moving; label it
-                        # with what is being counted ("Extracting file data:
-                        # 3 GiB of 11 GiB") rather than a bare number
-                        GLib.idle_add(self.update_flash_progress, pct,
-                                      line.split(" (")[0].strip() or None)
-                    elif line:
-                        GLib.idle_add(self.append_log, f"> {line}")
-
-            self.proc.wait()
-
-            if self.is_flashing:
-                if self.proc.returncode == 126:
-                    GLib.idle_add(self.append_log, T["canceled"])
-                    self.is_flashing = False
-                    GLib.idle_add(self.show_flash_failed, T["canceled"], "")
-                elif self.proc.returncode != 0:
-                    GLib.idle_add(self.append_log, f"{T['err_crit']} ({T['err_code']} {self.proc.returncode})")
-                    self.is_flashing = False
-                    GLib.idle_add(self.show_flash_failed, T["err_crit"],
-                                  f"{T['flash_failed']}\n\n{T['err_code']} {self.proc.returncode}")
-        # background thread: anything escaping here freezes the GUI at the
-        # last reported percentage with is_flashing still True
-        except Exception as e:  # noqa: BLE001
-            GLib.idle_add(self.append_log, f"{T['err_crit']} {e}")
-            self.is_flashing = False
-            GLib.idle_add(self.show_flash_failed, T["err_crit"], f"{T['flash_failed']}\n\n{e}")
+        if os_idx != 0:
+            self.udisks_worker(write_image, iso, dev, verify)
+        elif wtg:
+            self.udisks_worker(write_windows_togo, iso, dev, img_index, self.ask_speed)
+        else:
+            self.udisks_worker(write_windows, iso, dev, scheme)
 
     # --- Drive speed gate (Windows To Go only) ---
 
     def ask_speed(self, seq, iops):
-        """For the udisks writer: wait on its thread for the user's answer."""
+        """Called on the writer's thread: wait for the user's answer."""
         self.speed_answer = queue.Queue()
-        GLib.idle_add(self.on_speedtest, f"SPEEDTEST: {seq:.1f} {iops:.0f}")
+        GLib.idle_add(self.on_speedtest, seq, iops)
         while self.is_flashing:
             try:
                 return self.speed_answer.get(timeout=0.5) == "continue"
@@ -1554,28 +1330,9 @@ class LufuxWindow(Adw.ApplicationWindow):
         return False
 
     def answer_speedtest(self, answer):
-        """Unblock the worker's `read`. Runs on the main thread, as does the
-        dialog that calls it, so the two cannot answer twice."""
-        if self.proc is None:
-            self.speed_answer.put(answer)
-            return
-        try:
-            self.proc.stdin.write(answer + "\n")
-            self.proc.stdin.flush()
-        # the worker has a timeout on that read and dies on its own, so a
-        # worker that is already gone needs nothing more from us here
-        except (OSError, ValueError, AttributeError):
-            pass
+        self.speed_answer.put(answer)
 
-    def on_speedtest(self, line):
-        try:
-            _, seq_s, iops_s = line.split()
-            seq, iops = float(seq_s), float(iops_s)
-        # an unreadable measurement must not cost the user a flash
-        except ValueError:
-            self.answer_speedtest("continue")
-            return
-
+    def on_speedtest(self, seq, iops):
         numbers = {"seq": f"{seq:.1f}", "iops": f"{iops:.0f}"}
         if seq >= WTG_MIN_SEQ_MBPS and iops >= WTG_MIN_RAND_IOPS:
             self.append_log("[*] " + T["speed_ok"].format(**numbers))

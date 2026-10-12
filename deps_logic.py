@@ -5,18 +5,12 @@ import shutil
 PKG_MAP = {
     "arch": {
         "wimlib-imagex": "wimlib",
-        "rsync": "rsync",
-        "parted": "parted",
-        "pkexec": "polkit",
         "mkfs.vfat": "dosfstools",
         "mkfs.ntfs": "ntfs-3g",
         "grub-mkimage": "grub"
     },
     "debian": {
         "wimlib-imagex": "wimtools",
-        "rsync": "rsync",
-        "parted": "parted",
-        "pkexec": "policykit-1",
         "mkfs.vfat": "dosfstools",
         "mkfs.ntfs": "ntfs-3g",
         # grub-mkimage is in grub-common, the BIOS modules in grub-pc-bin;
@@ -25,17 +19,13 @@ PKG_MAP = {
     },
     "fedora": {
         "wimlib-imagex": "wimlib-utils",
-        "rsync": "rsync",
-        "parted": "parted",
-        "pkexec": "polkit",
         "mkfs.vfat": "dosfstools",
         "mkfs.ntfs": "ntfsprogs",
         "grub-mkimage": ("grub2-tools", "grub2-pc-modules")
     }
 }
 
-# mkfs.*, parted and wipefs live in sbin, which is not on a normal user's PATH
-# on Debian, so shutil.which alone reports them missing when they are installed
+# mkfs.* live in sbin, which is not on a normal user's PATH on Debian
 SEARCH_DIRS = ("/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/local/sbin")
 
 # grub-mkimage alone is not enough: a UEFI-only GRUB install has the command
@@ -52,25 +42,15 @@ def _have_bios_grub():
     return ((_have_cmd("grub-mkimage") or _have_cmd("grub2-mkimage"))
             and any(os.path.isfile(m) for m in GRUB_BIOS_MODULES))
 
-def check_dependencies(windows=True, bios_boot=False, udisks=False):
+def check_dependencies(windows=True, bios_boot=False):
+    """Tools of ours the mode needs. mkfs is udisks' business, asked separately."""
     # the dd path goes through udisks and runs nothing of ours
     if not windows:
         return []
-    # installer media goes through udisks: GPT splits the image with wimlib,
-    # MBR needs GRUB's images; mkntfs is udisks' business, asked separately
-    if udisks:
-        if bios_boot:
-            return [] if _have_bios_grub() else ["grub-mkimage"]
-        return [] if _have_cmd("wimlib-imagex") else ["wimlib-imagex"]
-    # mkfs.vfat (GPT path) and mkfs.ntfs (MBR path) are called by the Windows
-    # script after the drive is already wiped, so they must be caught up front
-    required_cmds = ["wimlib-imagex", "rsync", "parted", "pkexec",
-                     "mkfs.vfat", "mkfs.ntfs"]
-    missing = [cmd for cmd in required_cmds if not _have_cmd(cmd)]
-    # only MBR media boots through GRUB; nobody else should have to install it
-    if bios_boot and not _have_bios_grub():
-        missing.append("grub-mkimage")
-    return missing
+    # MBR media needs GRUB's images, the rest wimlib
+    if bios_boot:
+        return [] if _have_bios_grub() else ["grub-mkimage"]
+    return [] if _have_cmd("wimlib-imagex") else ["wimlib-imagex"]
 
 def get_distro_info():
     distro_id = "unknown"
@@ -105,7 +85,7 @@ def get_distro_info():
 def get_install_cmd(missing_cmds):
     # list of argv lists (no shell), so package names can't be injected
     base, _ = get_distro_info()
-    if base == "unknown" or "pkexec" in missing_cmds:
+    if base == "unknown":
         return None
 
     packages = set()
