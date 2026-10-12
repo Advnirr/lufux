@@ -1,0 +1,31 @@
+app-id: io.github.mikhail.lufux
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+command: lufux
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # disks are opened and listed through udisks, polkit asks the password
+  - --system-talk-name=org.freedesktop.UDisks2
+modules:
+  - name: lufux
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 main.py /app/share/lufux/main.py
+      - for m in *_logic.py; do install -Dm644 "$m" "/app/share/lufux/$m"; done
+      - printf '#!/bin/sh\nexec python3 /app/share/lufux/main.py "$@"\n' > lufux
+      - install -Dm755 lufux /app/bin/lufux
+      - install -Dm644 io.github.mikhail.lufux.desktop /app/share/applications/io.github.mikhail.lufux.desktop
+      - desktop-file-edit --set-key=Exec --set-value=lufux --set-icon=io.github.mikhail.lufux
+        /app/share/applications/io.github.mikhail.lufux.desktop
+      - install -Dm644 lufux.svg /app/share/icons/hicolor/scalable/apps/io.github.mikhail.lufux.svg
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - .flatpak-builder
+          - build-dir
