@@ -17,7 +17,7 @@ Requires:       parted
 Requires:       polkit
 Requires:       dosfstools
 Requires:       ntfsprogs
-Recommends:     udisks2
+Requires:       udisks2
 Suggests:       grub2-tools
 Suggests:       grub2-pc-modules
 
