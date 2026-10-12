@@ -58,37 +58,42 @@ def _buffer(size):
 def measure(path):
     fd, direct = _open_device(path)
     try:
-        size = os.lseek(fd, 0, os.SEEK_END)
-        if size < SEQ_CHUNK * 2:
-            raise ValueError("drive too small to measure")
-
-        # --- sequential ---
-        chunk = _buffer(SEQ_CHUNK)
-        limit = min(SEQ_LIMIT_BYTES, size)
-        os.lseek(fd, 0, os.SEEK_SET)
-        written = 0
-        start = time.monotonic()
-        while written < limit and time.monotonic() - start < SEQ_LIMIT_SECONDS:
-            written += os.write(fd, chunk)
-        seq_elapsed = time.monotonic() - start
-        chunk.close()
-
-        # --- random 4 KiB ---
-        block = _buffer(RAND_BLOCK)
-        blocks = size // RAND_BLOCK
-        ops = 0
-        start = time.monotonic()
-        while ops < RAND_LIMIT_OPS and time.monotonic() - start < RAND_LIMIT_SECONDS:
-            os.lseek(fd, random.randrange(blocks) * RAND_BLOCK, os.SEEK_SET)  # nosec B311
-            os.write(fd, block)
-            ops += 1
-        rand_elapsed = time.monotonic() - start
-        block.close()
-
-        if not direct:
-            os.fsync(fd)
+        return measure_fd(fd, direct)
     finally:
         os.close(fd)
+
+
+def measure_fd(fd, direct):
+    """The same on an fd opened for writing; direct: whether it has O_DIRECT."""
+    size = os.lseek(fd, 0, os.SEEK_END)
+    if size < SEQ_CHUNK * 2:
+        raise ValueError("drive too small to measure")
+
+    # --- sequential ---
+    chunk = _buffer(SEQ_CHUNK)
+    limit = min(SEQ_LIMIT_BYTES, size)
+    os.lseek(fd, 0, os.SEEK_SET)
+    written = 0
+    start = time.monotonic()
+    while written < limit and time.monotonic() - start < SEQ_LIMIT_SECONDS:
+        written += os.write(fd, chunk)
+    seq_elapsed = time.monotonic() - start
+    chunk.close()
+
+    # --- random 4 KiB ---
+    block = _buffer(RAND_BLOCK)
+    blocks = size // RAND_BLOCK
+    ops = 0
+    start = time.monotonic()
+    while ops < RAND_LIMIT_OPS and time.monotonic() - start < RAND_LIMIT_SECONDS:
+        os.lseek(fd, random.randrange(blocks) * RAND_BLOCK, os.SEEK_SET)  # nosec B311
+        os.write(fd, block)
+        ops += 1
+    rand_elapsed = time.monotonic() - start
+    block.close()
+
+    if not direct:
+        os.fsync(fd)
 
     if seq_elapsed <= 0 or rand_elapsed <= 0 or written == 0 or ops == 0:
         raise ValueError("no measurable I/O")

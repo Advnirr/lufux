@@ -213,9 +213,9 @@ def gpt_guids(disk_path, partition_number):
 
     Reads the block device directly rather than shelling out to parted or
     sgdisk: the GUIDs are needed exactly as stored, and every printed form
-    would have to be converted back.
+    would have to be converted back. disk_path can also be an open fd.
     """
-    with open(disk_path, "rb") as f:
+    with open(disk_path, "rb", closefd=not isinstance(disk_path, int)) as f:
         for sector in (512, 4096):
             f.seek(sector)
             header = f.read(92)

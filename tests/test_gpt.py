@@ -52,6 +52,14 @@ class GptGuids(unittest.TestCase):
                 expected = self.table["partitions"][number - 1]["uuid"]
                 self.assertEqual(str(uuid.UUID(bytes_le=part)).upper(), expected)
 
+    def test_an_fd_reads_the_same_and_stays_open(self):
+        fd = os.open(self.img, os.O_RDONLY)
+        try:
+            self.assertEqual(B.gpt_guids(fd, 2), B.gpt_guids(self.img, 2))
+            os.fstat(fd)
+        finally:
+            os.close(fd)
+
     def test_guids_are_raw_and_of_the_right_length(self):
         part, disk = B.gpt_guids(self.img, 2)
         self.assertEqual((len(part), len(disk)), (16, 16))

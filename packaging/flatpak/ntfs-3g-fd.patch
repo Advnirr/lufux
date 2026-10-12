@@ -1,0 +1,13 @@
+--- a/libntfs-3g/unix_io.c
++++ b/libntfs-3g/unix_io.c
+@@ -141,6 +141,10 @@
+ 	if (!NDevBlock(dev) && (flags & O_RDWR) == O_RDWR)
+ 		flags |= O_EXCL;
+ 	*(int*)dev->d_private = open(dev->d_name, flags);
++	/* a disk fd handed out by udisks cannot be reopened, use it as is */
++	if (*(int*)dev->d_private == -1 && errno == EACCES
++			&& !strncmp(dev->d_name, "/proc/self/fd/", 14))
++		*(int*)dev->d_private = dup(atoi(dev->d_name + 14));
+ 	if (*(int*)dev->d_private == -1) {
+ 		err = errno;
+ 			/* if permission error and rw, retry read-only */

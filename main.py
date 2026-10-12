@@ -5,6 +5,7 @@ import threading
 import time
 import re
 import json
+import queue
 from pathlib import Path
 
 # Flatpak points XDG_CONFIG_HOME into the sandbox
@@ -16,7 +17,7 @@ WORKER_TAG = "lufux-flash-worker"
 
 DEFAULT_CONFIG = {"theme": 0, "lang": "", "verify": True}
 
-# the Windows modes still run root scripts, which the sandbox cannot
+# Windows To Go runs a root script outside the Flatpak
 IN_FLATPAK = os.path.exists("/.flatpak-info")
 
 # What a drive has to manage before Windows To Go is worth deploying onto it.
@@ -196,7 +197,7 @@ from gi.repository import Gtk, Adw, GLib, Gio, Gdk
 
 # importing logic
 from windows_logic import write_windows
-from windows_togo_logic import get_windows_togo_script
+from windows_togo_logic import get_windows_togo_script, write_windows_togo
 from universal_logic import write_image
 from udisks_logic import list_drives, device_size, is_canceled, mounted_iso, can_format
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
@@ -286,7 +287,6 @@ def get_locale_dict():
             "dep_missing_title": "Отсутствуют зависимости",
             "dep_missing_body": "Для записи требуются системные пакеты:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nУстановить их сейчас?",
             "dep_unsupported": "Не хватает пакетов: <b>{deps}</b>\nПожалуйста, установите их вручную через пакетный менеджер.",
-            "flatpak_windows": "Windows To Go во Flatpak пока не поддерживается.",
             "btn_install": "Установить",
             "speed_title": "Накопитель слишком медленный",
             "speed_body": (
@@ -396,7 +396,6 @@ def get_locale_dict():
         "dep_missing_title": "Missing Dependencies",
         "dep_missing_body": "The following system packages are required:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nInstall them now?",
         "dep_unsupported": "Missing packages: <b>{deps}</b>\nPlease install them manually using your package manager.",
-        "flatpak_windows": "Windows To Go is not supported in Flatpak yet.",
         "btn_install": "Install",
         "speed_title": "This drive is too slow",
         "speed_body": (
@@ -448,6 +447,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.current_step = 0
 
         self.is_flashing = False
+        self.speed_refused = False
         self.proc = None
         # background jobs other than the flash that report back to this window
         self.jobs = 0
@@ -905,15 +905,11 @@ class LufuxWindow(Adw.ApplicationWindow):
         # for the MBR media it makes BIOS-bootable
         windows = self.os_dropdown.get_selected() == 0
         wtg = windows and self.wtg_check.get_active()
-        if wtg and IN_FLATPAK:
-            dialog = Adw.AlertDialog(heading=T["err_crit"], body=T["flatpak_windows"])
-            dialog.add_response("ok", T["btn_close_dialog"])
-            dialog.choose(self, None, lambda *_: None)
-            return
         bios_boot = (windows
                      and not self.wtg_check.get_active()
                      and self.scheme_dropdown.get_selected() == 1)
-        missing = check_dependencies(windows=windows, bios_boot=bios_boot, udisks=not wtg)
+        missing = check_dependencies(windows=windows, bios_boot=bios_boot,
+                                     udisks=not wtg or IN_FLATPAK)
         # udisks formats NTFS with the host's mkntfs, which only it can see
         if bios_boot and not can_format("ntfs"):
             missing.append("mkfs.ntfs")
@@ -1015,6 +1011,7 @@ class LufuxWindow(Adw.ApplicationWindow):
             self.view_stack.set_visible_child_name("page_flash")
             self.update_flash_progress(0.0)
             self.is_flashing = True
+            self.speed_refused = False
             # read the dropdowns here, on the main thread: GTK4 forbids widget
             # access from anywhere else
             os_idx = self.os_dropdown.get_selected()
@@ -1463,14 +1460,16 @@ class LufuxWindow(Adw.ApplicationWindow):
             return
         if done:
             GLib.idle_add(self.on_flash_success)
-        else:
+        elif not self.speed_refused:
             GLib.idle_add(self.show_interrupted_error, True)
 
     def worker_thread(self, iso, dev, os_idx, scheme, wtg, img_index=1, verify=False):
-        if not wtg:
+        if not wtg or IN_FLATPAK:
             self.proc = None
             if os_idx != 0:
                 self.udisks_worker(write_image, iso, dev, verify)
+            elif wtg:
+                self.udisks_worker(write_windows_togo, iso, dev, img_index, self.ask_speed)
             else:
                 self.udisks_worker(write_windows, iso, dev, scheme)
             return
@@ -1543,9 +1542,23 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     # --- Drive speed gate (Windows To Go only) ---
 
+    def ask_speed(self, seq, iops):
+        """For the udisks writer: wait on its thread for the user's answer."""
+        self.speed_answer = queue.Queue()
+        GLib.idle_add(self.on_speedtest, f"SPEEDTEST: {seq:.1f} {iops:.0f}")
+        while self.is_flashing:
+            try:
+                return self.speed_answer.get(timeout=0.5) == "continue"
+            except queue.Empty:
+                pass
+        return False
+
     def answer_speedtest(self, answer):
         """Unblock the worker's `read`. Runs on the main thread, as does the
         dialog that calls it, so the two cannot answer twice."""
+        if self.proc is None:
+            self.speed_answer.put(answer)
+            return
         try:
             self.proc.stdin.write(answer + "\n")
             self.proc.stdin.flush()
@@ -1592,6 +1605,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         # is_flashing goes down first: the worker exits on this answer, and the
         # reader thread must treat that as the chosen ending, not a failure
         self.is_flashing = False
+        self.speed_refused = True
         self.answer_speedtest("abort")
         self.append_log(T["speed_canceled"])
         self.update_flash_progress(0.0)

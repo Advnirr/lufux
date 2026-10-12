@@ -41,8 +41,10 @@ CHUNK = 4 << 20
 SPLIT_FROM = 4_000_000_000
 SPLIT_MB = "3800"
 WIM_NAMES = ("sources/install.wim", "sources/install.esd")
-# wimlib's split and export: "Splitting WIM: 60 MiB of 4107 MiB (1%) written"
-WIM_PROGRESS = re.compile(r"(\d+) MiB of (\d+) MiB")
+# "Splitting WIM: 60 MiB of 4107 MiB (1%) written",
+# "Extracting file data: 3 GiB of 11 GiB (27%) done"
+WIM_PROGRESS = re.compile(r"(\d+) (\w*B) of (\d+) (\w*B)")
+WIM_UNITS = {"B": 0, "KiB": 10, "MiB": 20, "GiB": 30, "TiB": 40}
 # wimlib cannot split a solid ESD and says so with this code
 WIMLIB_ERR_SOLID = 68
 
@@ -84,22 +86,23 @@ def _copy_tree(src, dst, skip, progress, stopped):
         _copy_file(os.path.join(src, f), os.path.join(dst, f), advance, stopped)
 
 
-def _wimlib(args, progress, stopped):
+def _wimlib(args, progress, stopped, pass_fds=()):
     """Run wimlib-imagex as the user. Its return code, or Stopped."""
     wimlib = shutil.which("wimlib-imagex")
     if not wimlib:
         raise FileNotFoundError("wimlib-imagex")
     # text mode turns the \r of its progress line into line breaks
     proc = subprocess.Popen([wimlib, *args], stdout=subprocess.PIPE,  # nosec B603
-                            stderr=subprocess.STDOUT, text=True)
+                            stderr=subprocess.STDOUT, text=True, pass_fds=pass_fds)
     tail = []
     try:
         for line in proc.stdout:
             if stopped():
                 raise Stopped
             match = WIM_PROGRESS.search(line)
-            if match:
-                progress(int(match.group(1)) << 20, max(int(match.group(2)), 1) << 20)
+            if match and {match.group(2), match.group(4)} <= WIM_UNITS.keys():
+                progress(int(match.group(1)) << WIM_UNITS[match.group(2)],
+                         max(int(match.group(3)) << WIM_UNITS[match.group(4)], 1))
             elif line.strip():
                 tail = (tail + [line.strip()])[-5:]
         code = proc.wait()

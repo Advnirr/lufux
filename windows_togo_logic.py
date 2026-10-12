@@ -1,5 +1,18 @@
+import fcntl
 import os
 import shlex
+import shutil
+import struct
+import subprocess  # nosec B404 - argv lists only, run as the user
+import tempfile
+
+from gi.repository import GLib
+
+from bcd_logic import build_bcd, gpt_guids
+from speed_logic import measure_fd
+from udisks_logic import (BASIC_DATA, BLOCK, FILESYSTEM, NO_OPTIONS, PARTITION, bus, call, mount,
+                          mounted_iso, objects, open_device, resolve, unmount, unmount_all)
+from windows_logic import WIM_NAMES, Stopped, _wimlib
 
 # Locals
 def get_locale_dict():
@@ -246,3 +259,130 @@ umount "$ISO_MNT" 2>/dev/null || true
 echo "STATUS: DONE"
 """
     return script
+
+
+ESP_TYPE = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+ESP_SIZE = 512 << 20
+BLKSSZGET = 0x1268
+
+
+def _partition(conn, table, offset, size, ptype, name, fstype="", label=""):
+    table_iface = "org.freedesktop.UDisks2.PartitionTable"
+    if fstype:
+        reply, _ = call(conn, table, table_iface, "CreatePartitionAndFormat",
+                        GLib.Variant("(ttssa{sv}sa{sv})", (offset, size, ptype, name, {}, fstype,
+                                                           {"label": GLib.Variant("s", label)})), "(o)")
+    else:
+        reply, _ = call(conn, table, table_iface, "CreatePartition",
+                        GLib.Variant("(ttssa{sv})", (offset, size, ptype, name, {})), "(o)")
+    return reply.unpack()[0]
+
+
+def _speed_test(conn, path):
+    """(MB/s, ops/s), or None when it cannot be measured."""
+    try:
+        fd = open_device(conn, path, "rw", os.O_DIRECT | os.O_SYNC)
+    except GLib.Error:
+        return None
+    try:
+        return measure_fd(fd, True)
+    except (OSError, ValueError):
+        return None
+    finally:
+        os.close(fd)
+
+
+def _mkntfs(fd, start):
+    mkntfs = shutil.which("mkntfs")
+    if not mkntfs:
+        raise FileNotFoundError("mkntfs")
+    # -p: the start sector goes into the boot sector, Windows needs it to boot
+    proc = subprocess.run([mkntfs, "-f", "-F", "-p", str(start), "-L", "Windows",  # nosec B603
+                           f"/proc/self/fd/{fd}"], pass_fds=[fd], capture_output=True, text=True)
+    if proc.returncode:
+        raise OSError(proc.stderr.strip() or f"mkntfs: {proc.returncode}")
+
+
+def _install_boot(boot, esp, store):
+    """Copy the boot files extracted from the image and the BCD onto the ESP."""
+    ms = os.path.join(esp, "EFI", "Microsoft", "Boot")
+    shutil.copytree(boot, ms, dirs_exist_ok=True)
+    os.makedirs(os.path.join(esp, "EFI", "Boot"), exist_ok=True)
+    shutil.copyfile(os.path.join(boot, "bootmgfw.efi"), os.path.join(esp, "EFI", "Boot", "bootx64.efi"))
+    with open(os.path.join(ms, "BCD"), "wb") as f:
+        f.write(store)
+
+
+def write_windows_togo(iso, dev, status, progress, stopped, img_index, ask_speed):
+    """Windows To Go through udisks, for the Flatpak. False if stopped.
+
+    mkntfs and wimlib work on the partition's fd as /proc/self/fd/N, which
+    needs the patched ntfs-3g the Flatpak builds.
+    ask_speed(MB/s, ops/s) returns whether to go on.
+    """
+    T = get_locale_dict()
+    conn = bus()
+    path = resolve(conn, dev)
+
+    status(T["prep"])
+    unmount_all(conn, path)
+    call(conn, path, BLOCK, "Format", GLib.Variant("(sa{sv})", ("empty", {})), "()")
+
+    status(T["speed"])
+    speed = _speed_test(conn, path)
+    if speed and not ask_speed(*speed):
+        return False
+
+    status(T["part"])
+    call(conn, path, BLOCK, "Format", GLib.Variant("(sa{sv})", ("gpt", {})), "()")
+    esp = _partition(conn, path, 1 << 20, ESP_SIZE, ESP_TYPE, "ESP", "vfat", "ESP")
+    win = _partition(conn, path, (1 << 20) + ESP_SIZE, 0, BASIC_DATA, "Windows")
+    info = objects(conn)[win][PARTITION]
+    fd = open_device(conn, path, "r")
+    try:
+        part_guid, disk_guid = gpt_guids(fd, info["Number"])
+    finally:
+        os.close(fd)
+
+    try:
+        with mounted_iso(iso) as src, tempfile.TemporaryDirectory(prefix="lufux-") as tmp:
+            image = next((os.path.join(src, n) for n in WIM_NAMES
+                          if os.path.exists(os.path.join(src, n))), None)
+            if not image:
+                raise OSError(T["no_image"])
+            # copied to the ESP after the apply; the image paths match the deployed system
+            env = dict(os.environ, WIMLIB_IMAGEX_IGNORE_CASE="1")
+            if subprocess.run([shutil.which("wimlib-imagex") or "wimlib-imagex", "extract",  # nosec B603
+                               image, str(int(img_index)), "/Windows/Boot/EFI", f"--dest-dir={tmp}"],
+                              env=env, capture_output=True, check=False).returncode:
+                raise OSError(T["no_index"])
+            boot = os.path.join(tmp, "EFI")
+            if not os.path.isfile(os.path.join(boot, "bootmgfw.efi")):
+                raise OSError(T["no_bootmgr"])
+
+            fd = open_device(conn, win, "rw")
+            try:
+                sector = struct.unpack("i", fcntl.ioctl(fd, BLKSSZGET, b"\0" * 4))[0]
+                _mkntfs(fd, info["Offset"] // sector)
+                if stopped():
+                    raise Stopped
+                status(T["apply"])
+                # wimlib keeps Windows metadata only when it writes the NTFS itself
+                _wimlib(["apply", image, str(int(img_index)), f"/proc/self/fd/{fd}"],
+                        progress, stopped, pass_fds=[fd])
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+
+            status(T["boot"])
+            mnt = mount(conn, esp)
+            try:
+                _install_boot(boot, mnt, build_bcd(part_guid, disk_guid))
+                status(T["sync"])
+                call(conn, esp, FILESYSTEM, "Unmount", NO_OPTIONS, "()")
+            except BaseException:
+                unmount(conn, esp)
+                raise
+        return True
+    except Stopped:
+        return False

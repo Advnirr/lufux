@@ -53,6 +53,11 @@ class Wimlib(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(seen, [(60 << 20, 4107 << 20)])
 
+    def test_apply_progress_in_gib(self):
+        _, seen = self.run_fake(
+            r"printf 'Extracting file data: 3 GiB of 11 GiB (27%%) done\r'")
+        self.assertEqual(seen, [(3 << 30, 11 << 30)])
+
     def test_a_solid_esd_is_reported_not_raised(self):
         self.assertEqual(self.run_fake("exit 68")[0], W.WIMLIB_ERR_SOLID)
 
