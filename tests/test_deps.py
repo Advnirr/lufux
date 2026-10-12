@@ -81,6 +81,12 @@ class RequiredCommands(unittest.TestCase):
             self.assertEqual(D.check_dependencies(), [
                 "wimlib-imagex", "rsync", "parted", "pkexec", "mkfs.vfat", "mkfs.ntfs"])
 
+    def test_gpt_media_needs_only_wimlib(self):
+        with mock.patch.object(D, "_have_cmd", return_value=False):
+            self.assertEqual(D.check_dependencies(udisks=True), ["wimlib-imagex"])
+        with mock.patch.object(D, "_have_cmd", lambda name: name == "wimlib-imagex"):
+            self.assertEqual(D.check_dependencies(udisks=True), [])
+
     def test_the_dd_path_needs_nothing(self):
         with mock.patch.object(D, "_have_cmd", return_value=False):
             self.assertEqual(D.check_dependencies(windows=False), [])

@@ -1,4 +1,12 @@
 import os
+import re
+import shutil
+import subprocess  # nosec B404 - argv lists only, run as the user
+
+from gi.repository import GLib
+
+from udisks_logic import (FILESYSTEM, NO_OPTIONS, bus, call, make_fat32, mount,
+                          mounted_iso, resolve, unmount, unmount_all)
 
 # Locals s s s
 def get_locale_dict():
@@ -12,7 +20,8 @@ def get_locale_dict():
             "split_wim": "Разделение WIM-образа...",
             "conv_lzx": "Конвертация в LZX (Solid архив)...",
             "grub": "Установка загрузчика для Legacy BIOS (GRUB)...",
-            "sync": "Синхронизация ввода-вывода (sync)..."
+            "sync": "Синхронизация ввода-вывода (sync)...",
+            "no_space": "Не хватает места в {dir} для перепаковки образа",
         }
     return {
 # english locals
@@ -22,7 +31,8 @@ def get_locale_dict():
         "split_wim": "Splitting WIM image...",
         "conv_lzx": "Converting to LZX (Solid archive)...",
         "grub": "Installing the Legacy BIOS bootloader (GRUB)...",
-        "sync": "Syncing I/O (sync)..."
+        "sync": "Syncing I/O (sync)...",
+        "no_space": "Not enough space in {dir} to repack the image",
     }
 
 def get_windows_script(scheme="gpt"):
@@ -218,3 +228,154 @@ umount "$ISO_MNT" 2>/dev/null || true
 echo "STATUS: DONE"
 """
     return script
+
+
+CHUNK = 4 << 20
+# FAT32 holds files up to 4 GiB - 1; the script splits from 4 GB, as it did
+SPLIT_FROM = 4_000_000_000
+SPLIT_MB = "3800"
+WIM_NAMES = ("sources/install.wim", "sources/install.esd")
+# wimlib's split and export: "Splitting WIM: 60 MiB of 4107 MiB (1%) written"
+WIM_PROGRESS = re.compile(r"(\d+) MiB of (\d+) MiB")
+# wimlib cannot split a solid ESD and says so with this code
+WIMLIB_ERR_SOLID = 68
+
+
+class Stopped(Exception):
+    pass
+
+
+def _copy_file(src, dst, advance, stopped):
+    with open(src, "rb") as fi, open(dst, "wb") as fo:
+        while chunk := fi.read(CHUNK):
+            if stopped():
+                raise Stopped
+            fo.write(chunk)
+            advance(len(chunk))
+        # otherwise the copy lands in the page cache and unmount takes minutes
+        fo.flush()
+        os.fsync(fo.fileno())
+
+
+def _copy_tree(src, dst, skip, progress, stopped):
+    files = []
+    for root, _, names in os.walk(src):
+        rel = os.path.relpath(root, src)
+        os.makedirs(os.path.join(dst, rel), exist_ok=True)
+        for name in names:
+            path = os.path.normpath(os.path.join(rel, name))
+            if path.lower() not in skip:
+                files.append(path)
+    total = sum(os.path.getsize(os.path.join(src, f)) for f in files) or 1
+    done = 0
+
+    def advance(n):
+        nonlocal done
+        done += n
+        progress(done, total)
+
+    for f in files:
+        _copy_file(os.path.join(src, f), os.path.join(dst, f), advance, stopped)
+
+
+def _wimlib(args, progress, stopped):
+    """Run wimlib-imagex as the user. Its return code, or Stopped."""
+    wimlib = shutil.which("wimlib-imagex")
+    if not wimlib:
+        raise FileNotFoundError("wimlib-imagex")
+    # text mode turns the \r of its progress line into line breaks
+    proc = subprocess.Popen([wimlib, *args], stdout=subprocess.PIPE,  # nosec B603
+                            stderr=subprocess.STDOUT, text=True)
+    tail = []
+    try:
+        for line in proc.stdout:
+            if stopped():
+                raise Stopped
+            match = WIM_PROGRESS.search(line)
+            if match:
+                progress(int(match.group(1)) << 20, max(int(match.group(2)), 1) << 20)
+            elif line.strip():
+                tail = (tail + [line.strip()])[-5:]
+        code = proc.wait()
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            proc.wait()
+    if code not in (0, WIMLIB_ERR_SOLID):
+        raise OSError("\n".join(tail) or f"wimlib-imagex: {code}")
+    return code
+
+
+def _fill(src, dst, T, status, progress, stopped):
+    status(T["copy_base"])
+    _copy_tree(src, dst, WIM_NAMES, progress, stopped)
+
+    image = next((os.path.join(src, n) for n in WIM_NAMES
+                  if os.path.exists(os.path.join(src, n))), None)
+    if not image:
+        return
+    size = os.path.getsize(image)
+    if size < SPLIT_FROM:
+        status(T["copy_wim"])
+        done = [0]
+
+        def advance(n):
+            done[0] += n
+            progress(done[0], size)
+
+        _copy_file(image, os.path.join(dst, "sources", os.path.basename(image)), advance, stopped)
+        return
+
+    swm = os.path.join(dst, "sources", "install.swm")
+    status(T["split_wim"])
+    if _wimlib(["split", image, swm, SPLIT_MB], progress, stopped) == 0:
+        return
+
+    # a solid ESD: repack it as LZX first, which wimlib can split
+    for f in os.listdir(os.path.dirname(swm)):
+        if f.lower().endswith(".swm"):
+            os.remove(os.path.join(os.path.dirname(swm), f))
+    work = os.path.join(GLib.get_user_cache_dir(), "lufux")
+    os.makedirs(work, exist_ok=True)
+    if shutil.disk_usage(work).free < size:
+        raise OSError(T["no_space"].format(dir=work))
+    repacked = os.path.join(work, "install.wim")
+    try:
+        status(T["conv_lzx"])
+        _wimlib(["export", image, "all", repacked, "--compress=maximum"], progress, stopped)
+        status(T["split_wim"])
+        if _wimlib(["split", repacked, swm, SPLIT_MB], progress, stopped):
+            raise OSError("wimlib-imagex split failed")
+    finally:
+        if os.path.exists(repacked):
+            os.remove(repacked)
+
+
+def write_windows_gpt(iso, dev, status, progress, stopped):
+    """Windows installer media on GPT/FAT32 through udisks. False if stopped.
+
+    Raises GLib.Error for anything udisks refuses, OSError for the rest.
+    """
+    T = get_locale_dict()
+    conn = bus()
+    path = resolve(conn, dev)
+
+    status(T["prep"])
+    unmount_all(conn, path)
+    part = make_fat32(conn, path, "WINUSB")
+    mounted = False
+    try:
+        usb = mount(conn, part)
+        mounted = True
+        with mounted_iso(iso) as src:
+            _fill(src, usb, T, status, progress, stopped)
+        status(T["sync"])
+        # an unmount that fails here must fail the flash: data may be unwritten
+        call(conn, part, FILESYSTEM, "Unmount", NO_OPTIONS, "()")
+        mounted = False
+        return True
+    except Stopped:
+        return False
+    finally:
+        if mounted:
+            unmount(conn, part)

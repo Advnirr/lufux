@@ -9,6 +9,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 import universal_logic as U
+import udisks_logic as D
 
 
 class Copy(unittest.TestCase):
@@ -104,9 +105,9 @@ class Listing(unittest.TestCase):
         objects = {}
         for d in disks:
             objects.update(d)
-        with mock.patch.object(U, "_objects", return_value=objects), \
-             mock.patch.object(U, "_bus"):
-            return [dev for dev, _, _ in U.list_drives()]
+        with mock.patch.object(D, "objects", return_value=objects), \
+             mock.patch.object(D, "bus"):
+            return [dev for dev, _, _ in D.list_drives()]
 
     def test_usb_and_removable_disks_are_listed(self):
         self.assertEqual(self.listed(disk("/dev/sdb"), disk("/dev/sdc", removable=True, bus="")),

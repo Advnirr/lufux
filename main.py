@@ -97,55 +97,24 @@ def list_iso_editions(iso_path):
     """[(image index, name, size)] for the Windows images in an ISO, [] if unreadable.
 
     Windows To Go deploys one image out of install.wim, and a retail ISO carries
-    several - Home, Pro, Education. Reading that list means reading the file,
-    and a current Windows ISO keeps its tree in UDF, so it has to be mounted;
-    udisksctl does that as the plain user, no root and no password. Where udisks
-    is missing the caller falls back to image 1, which is what Lufux deployed
-    unconditionally before.
+    several - Home, Pro, Education. A current Windows ISO keeps its tree in UDF,
+    so it has to be mounted; udisks does that as the plain user, no password.
     """
-    dev = None
     try:
-        setup = subprocess.run(  # nosec B603
-            [resolve_bin('udisksctl'), 'loop-setup', '-r', '-f', iso_path,
-             '--no-user-interaction'],
-            text=True, capture_output=True, check=False, timeout=30)
-        match = re.search(r'(/dev/loop\d+)', setup.stdout)
-        if not match:
-            return []
-        dev = match.group(1)
-        subprocess.run(  # nosec B603
-            [resolve_bin('udisksctl'), 'mount', '-b', dev, '--no-user-interaction'],
-            text=True, capture_output=True, check=False, timeout=60)
-        # udisksctl announces the mount point in the user's own language;
-        # findmnt answers the same question in a fixed format
-        target = subprocess.run(  # nosec B603
-            [resolve_bin('findmnt'), '-rno', 'TARGET', dev],
-            text=True, capture_output=True, check=False, timeout=10).stdout.split("\n")
-        if not target[0]:
-            return []
-        for name in ('install.wim', 'install.esd'):
-            image = os.path.join(target[0], 'sources', name)
-            if os.path.exists(image):
-                break
-        else:
-            return []
-        info = subprocess.run(  # nosec B603
-            [resolve_bin('wimlib-imagex'), 'info', image],
-            text=True, capture_output=True, check=False, timeout=120).stdout
-
+        with mounted_iso(iso_path) as root:
+            for name in ('install.wim', 'install.esd'):
+                image = os.path.join(root, 'sources', name)
+                if os.path.exists(image):
+                    break
+            else:
+                return []
+            info = subprocess.run(  # nosec B603
+                [resolve_bin('wimlib-imagex'), 'info', image],
+                text=True, capture_output=True, check=False, timeout=120).stdout
         return parse_wim_info(info)
     # a listing that fails costs the edition choice, never the flash
-    except (OSError, ValueError, subprocess.SubprocessError):
+    except (OSError, ValueError, LookupError, GLib.Error, subprocess.SubprocessError):
         return []
-    finally:
-        if dev:
-            for args in (('unmount', '-b', dev), ('loop-delete', '-b', dev)):
-                try:
-                    subprocess.run(  # nosec B603
-                        [resolve_bin('udisksctl'), *args, '--no-user-interaction'],
-                        capture_output=True, check=False, timeout=30)
-                except (OSError, subprocess.SubprocessError):
-                    pass
 
 
 def parse_wim_info(info):
@@ -226,9 +195,10 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, GLib, Gio, Gdk
 
 # importing logic
-from windows_logic import get_windows_script
+from windows_logic import get_windows_script, write_windows_gpt
 from windows_togo_logic import get_windows_togo_script
-from universal_logic import write_image, list_drives, device_size, is_canceled
+from universal_logic import write_image
+from udisks_logic import list_drives, device_size, is_canceled, mounted_iso
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
 from iso_logic import volume_label, identify, windows_name
 
@@ -316,7 +286,7 @@ def get_locale_dict():
             "dep_missing_title": "Отсутствуют зависимости",
             "dep_missing_body": "Для записи требуются системные пакеты:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nУстановить их сейчас?",
             "dep_unsupported": "Не хватает пакетов: <b>{deps}</b>\nПожалуйста, установите их вручную через пакетный менеджер.",
-            "flatpak_windows": "Запись Windows во Flatpak пока не поддерживается.",
+            "flatpak_windows": "Во Flatpak пока работает только установщик Windows на GPT.",
             "btn_install": "Установить",
             "speed_title": "Накопитель слишком медленный",
             "speed_body": (
@@ -426,7 +396,7 @@ def get_locale_dict():
         "dep_missing_title": "Missing Dependencies",
         "dep_missing_body": "The following system packages are required:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nInstall them now?",
         "dep_unsupported": "Missing packages: <b>{deps}</b>\nPlease install them manually using your package manager.",
-        "flatpak_windows": "Writing Windows is not supported in Flatpak yet.",
+        "flatpak_windows": "Only the Windows installer on GPT works in Flatpak yet.",
         "btn_install": "Install",
         "speed_title": "This drive is too slow",
         "speed_body": (
@@ -934,7 +904,9 @@ class LufuxWindow(Adw.ApplicationWindow):
         # deps check: dd needs none of the Windows tools, and GRUB is only needed
         # for the MBR media it makes BIOS-bootable
         windows = self.os_dropdown.get_selected() == 0
-        if windows and IN_FLATPAK:
+        gpt = (windows and not self.wtg_check.get_active()
+               and self.scheme_dropdown.get_selected() == 0)
+        if windows and not gpt and IN_FLATPAK:
             dialog = Adw.AlertDialog(heading=T["err_crit"], body=T["flatpak_windows"])
             dialog.add_response("ok", T["btn_close_dialog"])
             dialog.choose(self, None, lambda *_: None)
@@ -942,7 +914,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         bios_boot = (windows
                      and not self.wtg_check.get_active()
                      and self.scheme_dropdown.get_selected() == 1)
-        missing = check_dependencies(windows=windows, bios_boot=bios_boot)
+        missing = check_dependencies(windows=windows, bios_boot=bios_boot, udisks=gpt)
         if missing:
             self.prompt_install_dependencies(missing)
         else:
@@ -1160,7 +1132,7 @@ class LufuxWindow(Adw.ApplicationWindow):
     def kill_worker(self):
         self.is_flashing = False
         if self.proc is None:
-            # dd runs in this process: dd_worker sees the flag and reports
+            # udisks writers run in this process: udisks_worker sees the flag
             self.append_log(T["stopping"])
             return
         proc = self.proc
@@ -1451,7 +1423,8 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     # --- Worker ---
 
-    def dd_worker(self, iso, dev, verify):
+    def udisks_worker(self, write, iso, dev, *args):
+        """Run a writer that goes through udisks, in this process."""
         started = [time.monotonic()]
 
         def status(msg):
@@ -1470,8 +1443,7 @@ class LufuxWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.update_flash_progress, done / total, label)
 
         try:
-            done = write_image(iso, dev, status, progress,
-                               lambda: not self.is_flashing, verify)
+            done = write(iso, dev, status, progress, lambda: not self.is_flashing, *args)
         except GLib.Error as e:
             self.is_flashing = False
             if is_canceled(e):
@@ -1493,9 +1465,12 @@ class LufuxWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.show_interrupted_error, True)
 
     def worker_thread(self, iso, dev, os_idx, scheme, wtg, img_index=1, verify=False):
-        if os_idx != 0:
+        if os_idx != 0 or (not wtg and scheme == "gpt"):
             self.proc = None
-            self.dd_worker(iso, dev, verify)
+            if os_idx != 0:
+                self.udisks_worker(write_image, iso, dev, verify)
+            else:
+                self.udisks_worker(write_windows_gpt, iso, dev)
             return
         script = get_windows_togo_script(img_index) if wtg else get_windows_script(scheme)
 

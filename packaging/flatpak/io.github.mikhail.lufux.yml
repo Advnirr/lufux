@@ -10,7 +10,25 @@ finish-args:
   - --device=dri
   # disks are opened and listed through udisks, polkit asks the password
   - --system-talk-name=org.freedesktop.UDisks2
+  # where udisks mounts the stick and the ISO: /run/media, /media on Debian
+  - --filesystem=/run/media
+  - --filesystem=/media
 modules:
+  - name: wimlib
+    config-opts:
+      - --without-ntfs-3g
+      - --without-fuse
+      - --disable-static
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+      - /share/man
+      - '*.la'
+    sources:
+      - type: archive
+        url: https://wimlib.net/downloads/wimlib-1.14.5.tar.gz
+        sha256: 84221a3abd5b91228f15f8e6065c335a336237b5738197b75bf419eea561a194
+
   - name: lufux
     buildsystem: simple
     build-commands:

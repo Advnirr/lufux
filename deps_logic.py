@@ -51,10 +51,13 @@ def _have_bios_grub():
     return ((_have_cmd("grub-install") or _have_cmd("grub2-install"))
             and os.path.isfile(GRUB_BIOS_MODULE))
 
-def check_dependencies(windows=True, bios_boot=False):
+def check_dependencies(windows=True, bios_boot=False, udisks=False):
     # the dd path goes through udisks and runs nothing of ours
     if not windows:
         return []
+    # GPT media goes through udisks too and runs only wimlib, as the user
+    if udisks:
+        return [] if _have_cmd("wimlib-imagex") else ["wimlib-imagex"]
     # mkfs.vfat (GPT path) and mkfs.ntfs (MBR path) are called by the Windows
     # script after the drive is already wiped, so they must be caught up front
     required_cmds = ["wimlib-imagex", "rsync", "parted", "pkexec",
