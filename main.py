@@ -230,7 +230,7 @@ from windows_logic import get_windows_script
 from windows_togo_logic import get_windows_togo_script
 from universal_logic import write_image, list_drives, device_size, is_canceled
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
-from iso_logic import volume_label, identify, windows_name, badge_svg
+from iso_logic import volume_label, identify, windows_name
 
 # here I am
 APP_VERSION = "1.3.9"
@@ -251,6 +251,10 @@ def get_locale_dict():
             "btn_cancel": "Отмена",
             "btn_yes": "Да, стереть",
             "btn_done": "Готово",
+            "drop_iso": "Отпустите, чтобы выбрать образ",
+            "notify_done": "Образ записан",
+            "notify_failed": "Ошибка записи",
+            "notify_body": "{name} на {dev}",
             "step_drive": "Шаг 1: Выбор накопителя",
             "step_iso": "Шаг 2: Выбор образа",
             "step_summary": "Шаг 3: Сводка",
@@ -357,6 +361,10 @@ def get_locale_dict():
         "btn_cancel": "Cancel",
         "btn_yes": "Yes, wipe it",
         "btn_done": "Done",
+        "drop_iso": "Drop to choose the image",
+        "notify_done": "Image written",
+        "notify_failed": "Writing failed",
+        "notify_body": "{name} on {dev}",
         "step_drive": "Step 1: Select Drive",
         "step_iso": "Step 2: Select ISO",
         "step_summary": "Step 3: Summary",
@@ -476,8 +484,21 @@ class LufuxWindow(Adw.ApplicationWindow):
 
         self.connect("close-request", self.on_close_request)
 
+        # Nautilus on Hyprland offers only MOVE; the file stays where it is
+        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY | Gdk.DragAction.MOVE)
+        drop.connect("enter", self.on_drag_enter)
+        drop.connect("leave", lambda *_: self.drop_hint.set_visible(False))
+        drop.connect("drop", self.on_drop)
+        self.add_controller(drop)
+
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.set_content(main_box)
+        overlay = Gtk.Overlay(child=main_box)
+        self.set_content(overlay)
+
+        self.drop_hint = Gtk.Box(can_target=False, visible=False)
+        self.drop_hint.add_css_class("drop-hint")
+        self.drop_hint.append(Gtk.Label(label=T["drop_iso"], hexpand=True, css_classes=["title-2"]))
+        overlay.add_overlay(self.drop_hint)
 
         header = Adw.HeaderBar()
         main_box.append(header)
@@ -577,7 +598,6 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def setup_page_iso(self):
         page = Adw.StatusPage(title=T["step_iso"], icon_name="media-optical-symbolic")
-        self.iso_page = page
         self.iso_system = ""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15, halign=Gtk.Align.CENTER)
         page.set_child(box)
@@ -642,25 +662,17 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.update_iso_badge()
 
     def update_iso_badge(self):
-        """Name the system in the chosen ISO and show its logo or a letter badge."""
+        """Name the system in the chosen ISO."""
         if not self.iso_path:
             return
         windows = self.os_dropdown.get_selected() == 0
-        name, icon, color = identify(volume_label(self.iso_path),
-                                     os.path.basename(self.iso_path), windows)
         if windows:
             name = windows_name(self.editions)
+        else:
+            name = identify(volume_label(self.iso_path), os.path.basename(self.iso_path))
         self.iso_system = name
         self.iso_name.set_label(name)
         self.iso_name.set_visible(True)
-
-        logo = f"distributor-logo-{icon}"
-        has_logo = icon and Gtk.IconTheme.get_for_display(self.get_display()).has_icon(logo)
-        badge = None if has_logo else Gdk.Texture.new_from_bytes(GLib.Bytes.new(badge_svg(name, color)))
-        for page in (self.iso_page, self.summary_page):
-            page.set_paintable(badge)
-            if has_logo:
-                page.set_icon_name(logo)
 
     def on_wtg_toggled(self, check):
         # Windows To Go is always GPT/UEFI, so hide the scheme picker
@@ -708,7 +720,6 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def setup_page_summary(self):
         page = Adw.StatusPage(title=T["step_summary"], icon_name="emblem-system-symbolic")
-        self.summary_page = page
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, halign=Gtk.Align.CENTER)
         box.set_size_request(400, -1)
         page.set_child(box)
@@ -1286,8 +1297,8 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def rebuild(self):
         """Swap this window for a new one in the current language."""
-        global T
-        T = get_locale_dict()
+        T.clear()
+        T.update(get_locale_dict())
         sel = self.drive_dropdown.get_selected_item()
         drive = sel.get_string().split()[0] if sel and is_drive_row(sel.get_string()) else None
         win = LufuxWindow(application=self.get_application(), iso_path=self.iso_path,
@@ -1347,6 +1358,26 @@ class LufuxWindow(Adw.ApplicationWindow):
                 self.set_iso(file.get_path())
         except GLib.Error:
             pass
+
+    def on_drag_enter(self, target, x, y):
+        if self.current_step > 1:
+            return 0
+        self.drop_hint.set_visible(True)
+        offered = target.get_current_drop().get_actions()
+        return Gdk.DragAction.COPY if offered & Gdk.DragAction.COPY else Gdk.DragAction.MOVE
+
+    def on_drop(self, target, files, x, y):
+        self.drop_hint.set_visible(False)
+        files = files.get_files()
+        path = files[0].get_path() if len(files) == 1 else None
+        if self.current_step > 1 or not path or not path.lower().endswith(".iso"):
+            return False
+        self.set_iso(path)
+        sel = self.drive_dropdown.get_selected_item()
+        if self.current_step == 0 and sel is not None and is_drive_row(sel.get_string()):
+            self.current_step = 1
+            self.update_ui_state()
+        return True
 
     def set_iso(self, path):
         self.iso_path = path
@@ -1592,11 +1623,23 @@ class LufuxWindow(Adw.ApplicationWindow):
         canceled.add_response("restart", T["btn_restart"])
         canceled.choose(self, None, self.on_error_response)
 
+    def notify(self, title, body=""):
+        """A desktop notification, when the window is not in front to say it."""
+        if self.is_active():
+            return
+        note = Gio.Notification.new(title)
+        # the Flatpak exports the icon under the app ID, packages as lufux
+        note.set_icon(Gio.ThemedIcon.new_from_names(["io.github.mikhail.lufux", "lufux"]))
+        if body:
+            note.set_body(body)
+        self.get_application().send_notification("flash", note)
+
     def show_flash_failed(self, heading, body):
         # a failed flash used to leave only a log line behind: this page hides
         # the navigation and has no Done button, so the app had to be closed
         # before anything could be tried again
         self.update_flash_progress(0.0)
+        self.notify(T["notify_failed"], body or heading)
         dialog = Adw.AlertDialog(heading=heading, body=body)
         dialog.add_response("close", T["btn_close_app"])
         dialog.add_response("restart", T["btn_restart"])
@@ -1606,6 +1649,9 @@ class LufuxWindow(Adw.ApplicationWindow):
     def on_flash_success(self):
         self.is_flashing = False
         self.append_log(T["done"])
+        self.notify(T["notify_done"], T["notify_body"].format(
+            name=self.iso_system or os.path.basename(self.iso_path),
+            dev=self.selected_dev.removeprefix("/dev/")))
         self.flash_progress.set_fraction(1.0)
         
         self.flash_progress.set_visible(False)
@@ -1632,6 +1678,13 @@ class LufuxApp(Adw.Application):
         }
         .wizard-dot.active {
             background-color: @accent_bg_color;
+        }
+        .drop-hint {
+            margin: 12px;
+            border: 3px dashed @accent_color;
+            border-radius: 12px;
+            background-color: alpha(@window_bg_color, 0.95);
+            color: @accent_color;
         }
         """)
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)

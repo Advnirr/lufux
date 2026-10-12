@@ -5,37 +5,35 @@ import re
 # the ISO9660 primary volume descriptor: sector 16, label at byte 40
 PVD_OFFSET = 16 * 2048
 
-# (pattern, name, icon id, colour); first match wins, so flavours go first
+# (pattern, name); first match wins, so flavours go first
 KNOWN = [
-    (r"kubuntu", "Kubuntu", "kubuntu", "#0079c1"),
-    (r"xubuntu", "Xubuntu", "xubuntu", "#2b5fab"),
-    (r"lubuntu", "Lubuntu", "lubuntu", "#0068c8"),
-    (r"ubuntu", "Ubuntu", "ubuntu", "#e95420"),
-    (r"cachyos", "CachyOS", "cachyos", "#1dc7b5"),
-    (r"endeavouros", "EndeavourOS", "endeavouros", "#7f3fbf"),
-    (r"manjaro", "Manjaro", "manjaro", "#35bf5c"),
-    (r"garuda", "Garuda Linux", "garuda", "#a23be9"),
-    (r"(^|[^a-z])arch", "Arch Linux", "archlinux", "#1793d1"),
-    (r"fedora", "Fedora", "fedora", "#51a2da"),
-    (r"debian", "Debian", "debian", "#a80030"),
-    (r"mint", "Linux Mint", "linuxmint", "#87cf3e"),
-    (r"pop[-_ ]?os", "Pop!_OS", "pop-os", "#48b9c7"),
-    (r"opensuse|suse", "openSUSE", "opensuse", "#73ba25"),
-    (r"alpine", "Alpine Linux", "alpine", "#0d597f"),
-    (r"nixos", "NixOS", "nixos", "#5277c3"),
-    (r"kali", "Kali Linux", "kali", "#367bf0"),
-    (r"elementary", "elementary OS", "elementary", "#64baff"),
-    (r"zorin", "Zorin OS", "zorin", "#15a6f0"),
-    (r"gentoo", "Gentoo", "gentoo", "#54487a"),
-    (r"void", "Void Linux", "void", "#478061"),
-    (r"rocky", "Rocky Linux", "rocky", "#10b981"),
-    (r"alma", "AlmaLinux", "almalinux", "#0f4266"),
-    (r"centos", "CentOS", "centos", "#932279"),
-    (r"tails", "Tails", "tails", "#56347c"),
-    (r"proxmox", "Proxmox", "proxmox", "#e57000"),
+    (r"kubuntu", "Kubuntu"),
+    (r"xubuntu", "Xubuntu"),
+    (r"lubuntu", "Lubuntu"),
+    (r"ubuntu", "Ubuntu"),
+    (r"cachyos", "CachyOS"),
+    (r"endeavouros", "EndeavourOS"),
+    (r"manjaro", "Manjaro"),
+    (r"garuda", "Garuda Linux"),
+    (r"(^|[^a-z])arch", "Arch Linux"),
+    (r"fedora", "Fedora"),
+    (r"debian", "Debian"),
+    (r"mint", "Linux Mint"),
+    (r"pop[-_ ]?os", "Pop!_OS"),
+    (r"opensuse|suse", "openSUSE"),
+    (r"alpine", "Alpine Linux"),
+    (r"nixos", "NixOS"),
+    (r"kali", "Kali Linux"),
+    (r"elementary", "elementary OS"),
+    (r"zorin", "Zorin OS"),
+    (r"gentoo", "Gentoo"),
+    (r"void", "Void Linux"),
+    (r"rocky", "Rocky Linux"),
+    (r"alma", "AlmaLinux"),
+    (r"centos", "CentOS"),
+    (r"tails", "Tails"),
+    (r"proxmox", "Proxmox"),
 ]
-WINDOWS = ("Windows", "windows", "#0078d4")
-UNKNOWN_COLOR = "#77767b"
 
 
 def volume_label(path):
@@ -51,20 +49,17 @@ def volume_label(path):
     return pvd[40:72].decode("ascii", "replace").strip()
 
 
-def identify(label, filename, windows=False):
-    """(name, icon id, colour) for the system in the image.
+def identify(label, filename):
+    """The system's name, with its version when the label or file name has one.
 
-    icon id is None when the system is not known; name then is the label.
+    An unknown system is named by its label, or its file name without one.
     """
-    if windows:
-        return WINDOWS
     text = f"{label} {filename}".lower()
-    for pattern, name, icon, color in KNOWN:
+    for pattern, name in KNOWN:
         if re.search(pattern, text):
             version = re.search(r"\d+(?:\.\d+)+", text)
-            return (f"{name} {version.group()}" if version else name), icon, color
-    name = label or os.path.splitext(filename)[0]
-    return name, None, UNKNOWN_COLOR
+            return f"{name} {version.group()}" if version else name
+    return label or os.path.splitext(filename)[0]
 
 
 def windows_name(editions):
@@ -74,15 +69,3 @@ def windows_name(editions):
         if match:
             return match.group()
     return "Windows"
-
-
-def badge_svg(name, color):
-    """A circle in the system's colour with the first letter of its name."""
-    letter = next((c for c in name if c.isalnum()), "?").upper()
-    # drawn at 256 for HiDPI, shown at 128
-    return (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128">'
-        f'<circle cx="64" cy="64" r="64" fill="{color}"/>'
-        '<text x="64" y="64" dy=".35em" text-anchor="middle" font-family="sans-serif" '
-        f'font-weight="bold" font-size="64" fill="#fff">{letter}</text></svg>'
-    ).encode()
