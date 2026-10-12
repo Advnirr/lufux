@@ -3,7 +3,6 @@ import os
 import subprocess  # nosec B404 - all calls below use argv lists, never shell=True
 import threading
 import re
-import sys
 import json
 from pathlib import Path
 
@@ -448,7 +447,7 @@ def get_locale_dict():
 T = get_locale_dict()
 
 class LufuxWindow(Adw.ApplicationWindow):
-    def __init__(self, **kwargs):
+    def __init__(self, iso_path=None, drive=None, rebuilt=False, **kwargs):
         super().__init__(**kwargs)
         self.set_title(T["title"])
         self.set_default_size(600, 520)
@@ -462,6 +461,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         
         self.is_flashing = False
         self.proc = None
+        # background jobs other than the flash that report back to this window
+        self.jobs = 0
 
         self.connect("close-request", self.on_close_request)
 
@@ -525,12 +526,21 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.nav_box.append(self.btn_next)
 
         self.update_ui_state()
-        # after the window is up, so the dialog has something to attach to
-        GLib.idle_add(self.check_stale_leftovers)
+        # after the window is up, so the dialog has something to attach to;
+        # a window rebuilt for a new language has asked already
+        if not rebuilt:
+            GLib.idle_add(self.check_stale_leftovers)
 
         self.last_drives = []
-        GLib.timeout_add_seconds(2, self.auto_refresh_drives)
-        
+        self.auto_refresh_drives()
+        self.refresh_id = GLib.timeout_add_seconds(2, self.auto_refresh_drives)
+        if drive:
+            names = [d.split()[0] for d in self.last_drives]
+            if drive in names:
+                self.drive_dropdown.set_selected(names.index(drive))
+        if iso_path:
+            self.set_iso(iso_path)
+
         self.apply_saved_theme()
 
     def apply_saved_theme(self):
@@ -900,6 +910,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         resp = dialog.choose_finish(result)
         if resp == "install":
             self.btn_next.set_sensitive(False)
+            self.jobs += 1
             threading.Thread(target=self.install_deps_worker, daemon=True).start()
 
     def install_deps_worker(self):
@@ -923,10 +934,12 @@ class LufuxWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.show_deps_error, str(e))
 
     def on_deps_installed_success(self):
+        self.jobs -= 1
         self.btn_next.set_sensitive(True)
         self.show_warn1_dialog()
         
     def show_deps_error(self, err_text):
+        self.jobs -= 1
         self.btn_next.set_sensitive(True)
         dialog = Adw.AlertDialog(heading=T["err_crit"], body=err_text[:500])
         dialog.add_response("ok", T["btn_close_dialog"])
@@ -1029,6 +1042,7 @@ class LufuxWindow(Adw.ApplicationWindow):
     def on_stale_response(self, dialog, result):
         if dialog.choose_finish(result) != "yes":
             return
+        self.jobs += 1
         # pkexec pops a polkit dialog, which would freeze the GTK main loop
         threading.Thread(target=self.clean_stale_thread,
                          args=(list(self.stale_mounts),), daemon=True).start()
@@ -1054,6 +1068,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         GLib.idle_add(self.show_stale_result, ok and not left)
 
     def show_stale_result(self, ok):
+        self.jobs -= 1
         dialog = Adw.AlertDialog(heading=T["stale_done"] if ok else T["stale_failed"], body="")
         dialog.add_response("ok", T["btn_close_dialog"])
         dialog.choose(self, None, lambda d, r: d.choose_finish(r))
@@ -1092,6 +1107,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         # pkexec pops a polkit dialog, which would freeze the GTK main loop for
         # as long as it is up, so do the kill on a thread and report after
         self.append_log(T["stopping"])
+        self.jobs += 1
         threading.Thread(target=self.kill_worker_thread, args=(proc, pgid), daemon=True).start()
 
     def kill_worker_thread(self, proc, pgid):
@@ -1117,7 +1133,11 @@ class LufuxWindow(Adw.ApplicationWindow):
             except (ProcessLookupError, OSError):
                 pass
 
-        GLib.idle_add(self.show_interrupted_error, killed)
+        GLib.idle_add(self.kill_done, killed)
+
+    def kill_done(self, killed):
+        self.jobs -= 1
+        self.show_interrupted_error(killed)
 
     def show_interrupted_error(self, killed=True):
         body = T["err_interrupted"] if killed else T["err_kill_failed"]
@@ -1175,7 +1195,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         lang_model = Gtk.StringList.new(["English", "Русский"])
         lang_row.set_model(lang_model)
         
-        current_lang = APP_CONFIG.get("lang", os.environ.get('LANG', ''))
+        # the saved choice can be ahead of LANG when it changed mid-flash
+        current_lang = APP_CONFIG.get("lang") or os.environ.get('LANG', '')
         lang_row.set_selected(1 if current_lang.startswith('ru') else 0)
         lang_row.connect("notify::selected", self.on_lang_changed)
         group.add(lang_row)
@@ -1196,7 +1217,7 @@ class LufuxWindow(Adw.ApplicationWindow):
             APP_CONFIG["lang"] = new_lang
             save_config(APP_CONFIG)
 
-        if self.is_flashing:
+        if self.is_flashing or self.jobs:
             dialog = Adw.AlertDialog(
                 heading=T["lang_restart_title"],
                 body=T["lang_restart_body"]
@@ -1205,8 +1226,22 @@ class LufuxWindow(Adw.ApplicationWindow):
             dialog.choose(self, None, lambda *args: None)
         else:
             os.environ['LANG'] = new_lang
-            # restart to apply the new language
-            os.execv(sys.executable, [sys.executable] + sys.argv)  # nosec B606
+            # not from inside the dialog's own signal: the dialog goes with the window
+            GLib.idle_add(self.rebuild)
+
+    def rebuild(self):
+        """Swap this window for a new one in the current language."""
+        global T
+        T = get_locale_dict()
+        sel = self.drive_dropdown.get_selected_item()
+        drive = sel.get_string().split()[0] if sel and is_drive_row(sel.get_string()) else None
+        win = LufuxWindow(application=self.get_application(), iso_path=self.iso_path,
+                          drive=drive, rebuilt=True)
+        win.set_default_size(self.get_width(), self.get_height())
+        win.present()
+        GLib.source_remove(self.refresh_id)
+        self.destroy()
+        return False
 
     def auto_refresh_drives(self):
         if self.current_step == 0:
@@ -1254,16 +1289,18 @@ class LufuxWindow(Adw.ApplicationWindow):
         try:
             file = dialog.open_finish(result)
             if file:
-                self.iso_path = file.get_path()
-                self.iso_label.set_label(os.path.basename(self.iso_path))
-                self.analyze_iso()
-                self.editions = []
-                self.update_edition_visible()
-                threading.Thread(target=self.read_editions,
-                                 args=(self.iso_path,), daemon=True).start()
-                self.update_ui_state()
+                self.set_iso(file.get_path())
         except GLib.Error:
             pass
+
+    def set_iso(self, path):
+        self.iso_path = path
+        self.iso_label.set_label(os.path.basename(path))
+        self.analyze_iso()
+        self.editions = []
+        self.update_edition_visible()
+        threading.Thread(target=self.read_editions, args=(path,), daemon=True).start()
+        self.update_ui_state()
 
     # A current Windows ISO keeps its real tree in a UDF filesystem and leaves
     # only a README on the ISO9660 side, and libarchive cannot read UDF at all -
