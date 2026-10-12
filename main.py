@@ -149,6 +149,16 @@ def fmt_size(size):
     return f"{size / 1024 ** 2:.0f} MiB"
 
 
+def unwritten_bytes(meminfo="/proc/meminfo"):
+    """Data the kernel still has to write out, all drives together."""
+    try:
+        with open(meminfo, encoding="ascii") as f:
+            return sum(int(line.split()[1]) for line in f
+                       if line.startswith(("Dirty:", "Writeback:"))) * 1024
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
 def device_size_bytes(dev):
     """The whole device's size in bytes, or 0 when udisks cannot say."""
     return device_size(dev)
@@ -260,6 +270,7 @@ def get_locale_dict():
             "interrupt_yes": "Да, прервать",
             "err_interrupted": "Прервано пользователем",
             "stopping": "Остановка процесса записи...",
+            "stopping_left": "Остановка: осталось записать {mb} МБ",
             "btn_restart": "Начать заново",
             "btn_close_app": "Закрыть программу",
             "btn_close_dialog": "Закрыть",
@@ -363,6 +374,7 @@ def get_locale_dict():
         "interrupt_yes": "Yes, interrupt",
         "err_interrupted": "Interrupted by user",
         "stopping": "Stopping the flashing process...",
+        "stopping_left": "Stopping: {mb} MB left to write",
         "btn_restart": "Restart",
         "btn_close_app": "Close Program",
         "btn_close_dialog": "Close",
@@ -996,11 +1008,12 @@ class LufuxWindow(Adw.ApplicationWindow):
             wtg = self.wtg_check.get_active()
             img_index = self.selected_img_index()
             verify = os_idx != 0 and self.sum_verify.get_active()
-            threading.Thread(
+            self.worker = threading.Thread(
                 target=self.worker_thread,
                 args=(self.iso_path, self.selected_dev, os_idx, scheme, wtg, img_index, verify),
                 daemon=True,
-            ).start()
+            )
+            self.worker.start()
 
     # --- Window closing ---
 
@@ -1023,6 +1036,16 @@ class LufuxWindow(Adw.ApplicationWindow):
         # the writer runs in this process and checks the flag
         self.is_flashing = False
         self.append_log(T["stopping"])
+        # a slow drive takes minutes to take what is already in the cache
+        GLib.timeout_add_seconds(1, self.show_stopping)
+
+    def show_stopping(self):
+        if not self.worker.is_alive():
+            return False
+        left = unwritten_bytes() >> 20
+        if left:
+            self.flash_progress.set_text(T["stopping_left"].format(mb=left))
+        return True
 
     def show_interrupted_error(self):
         err_dialog = Adw.AlertDialog(heading=T["err_crit"], body=T["err_interrupted"])

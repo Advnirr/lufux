@@ -9,7 +9,7 @@ depends=('python-gobject' 'gtk4' 'libadwaita' 'wimlib' 'dosfstools' 'ntfs-3g' 'u
 optdepends=('grub: boot MBR/NTFS Windows media on Legacy BIOS')
 makedepends=('git')
 source=("main.py" "windows_logic.py" "windows_togo_logic.py" "bcd_logic.py" "speed_logic.py" "universal_logic.py" "deps_logic.py" "iso_logic.py" "udisks_logic.py" "io.github.Advnirr.Lufux.desktop" "io.github.Advnirr.Lufux.metainfo.xml" "lufux.svg")
-sha256sums=('e1010eb435d102540f461fe3e02119568185c63512f1515a7915c62ec2ea4d4f'
+sha256sums=('9080fd708355ab400c4ccac9c838cecca8657ff7f30c2ac8b9c019f05b2a5b2b'
             '54e7a4c483aaf9b1102e65080883e44a4ddb38d83ccbb22934b8e0e3936be0b9'
             '6b37c6e0633577dbb9bc044e74d54827f096b6f9b8f7f682fd7470b2d9eb011c'
             '3fcc097c0baa6c786b5903b64789e1027a74efa4da4f78c414dc414694945c16'

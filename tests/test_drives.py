@@ -124,5 +124,19 @@ class PkexecArgv(unittest.TestCase):
         self.assertNotRegex(source, r"resolve_bin\('pkexec'\),\s*'")
 
 
+
+@unittest.skipIf(main is None, "GTK is not installed")
+class Unwritten(unittest.TestCase):
+    def test_dirty_and_writeback_are_added_up(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".meminfo") as f:
+            f.write("MemFree: 100 kB\nDirty: 4096 kB\nWriteback: 1024 kB\nWritebackTmp: 7 kB\n")
+            f.flush()
+            self.assertEqual(main.unwritten_bytes(f.name), 5 << 20)
+
+    def test_an_unreadable_file_is_zero(self):
+        self.assertEqual(main.unwritten_bytes("/nonexistent"), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
