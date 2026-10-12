@@ -122,12 +122,42 @@ def unmount(conn, path):
         call(conn, path, FILESYSTEM, "Unmount", NO_OPTIONS, "()")
 
 
+class PortalPath(OSError):
+    """The file is only reachable through the document portal."""
+
+
+def _portal_dirs():
+    return ("/run/flatpak/doc/", f"/run/user/{os.getuid()}/doc/")
+
+
+def host_path(path):
+    """The real path of a file the document portal handed over, if this sandbox can read it."""
+    real = os.path.realpath(path)
+    prefix = next((d for d in _portal_dirs() if real.startswith(d)), None)
+    if not prefix:
+        return path
+    doc_id = real[len(prefix):].split("/", 1)[0]
+    try:
+        reply = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
+            "org.freedesktop.portal.Documents", "/org/freedesktop/portal/documents",
+            "org.freedesktop.portal.Documents", "GetHostPaths", GLib.Variant("(as)", ([doc_id],)),
+            GLib.VariantType("(a{say})"), Gio.DBusCallFlags.NONE, -1, None)
+        host = _bytes(reply.unpack()[0][doc_id])
+    except (GLib.Error, KeyError):
+        return path
+    return host if os.access(host, os.R_OK) else path
+
+
 @contextlib.contextmanager
 def mounted_iso(iso):
     """Mount the ISO read-only through a loop device and yield its mount point.
 
-    The file goes to udisks as an fd, which also works for a portal path.
+    Not from the document portal: its files are a FUSE mount root cannot read,
+    udisks then times out and leaves the loop device behind.
     """
+    iso = host_path(iso)
+    if os.path.realpath(iso).startswith(_portal_dirs()):
+        raise PortalPath(iso)
     conn = bus()
     # the fd list takes the fd over and closes it
     fds = Gio.UnixFDList.new_from_array([os.open(iso, os.O_RDONLY | os.O_CLOEXEC)])

@@ -193,7 +193,7 @@ from gi.repository import Gtk, Adw, GLib, Gio, Gdk
 from windows_logic import write_windows
 from windows_togo_logic import write_windows_togo
 from universal_logic import write_image
-from udisks_logic import list_drives, device_size, is_canceled, mounted_iso, can_format
+from udisks_logic import PortalPath, list_drives, device_size, is_canceled, mounted_iso, can_format
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
 from iso_logic import volume_label, identify, windows_name
 
@@ -275,6 +275,7 @@ def get_locale_dict():
             "dep_missing_body": "Для записи требуются системные пакеты:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nУстановить их сейчас?",
             "dep_unsupported": "Не хватает пакетов: <b>{deps}</b>\nПожалуйста, установите их вручную через пакетный менеджер.",
             "btn_install": "Установить",
+            "iso_portal": "Lufux не может открыть образ из этой папки. Переложите его в домашнюю папку.",
             "speed_title": "Накопитель слишком медленный",
             "speed_body": (
                 "Замер накопителя:\n"
@@ -377,6 +378,7 @@ def get_locale_dict():
         "dep_missing_body": "The following system packages are required:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nInstall them now?",
         "dep_unsupported": "Missing packages: <b>{deps}</b>\nPlease install them manually using your package manager.",
         "btn_install": "Install",
+        "iso_portal": "Lufux cannot open the image from this folder. Move it to your home folder.",
         "speed_title": "This drive is too slow",
         "speed_body": (
             "Measured on this drive:\n"
@@ -1202,7 +1204,9 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.editions = []
         self.update_edition_visible()
         self.update_iso_badge()
-        threading.Thread(target=self.read_editions, args=(path,), daemon=True).start()
+        # only Windows has editions; a loop mount of anything else is wasted time
+        if self.os_dropdown.get_selected() == 0:
+            threading.Thread(target=self.read_editions, args=(path,), daemon=True).start()
         self.update_ui_state()
 
     # A current Windows ISO keeps its real tree in a UDF filesystem and leaves
@@ -1297,6 +1301,11 @@ class LufuxWindow(Adw.ApplicationWindow):
                 msg = re.sub(r"^GDBus\.Error:\S+\s*", "", e.message)
                 GLib.idle_add(self.append_log, f"{T['err_crit']} {msg}")
                 GLib.idle_add(self.show_flash_failed, T["err_crit"], f"{T['flash_failed']}\n\n{msg}")
+            return
+        except PortalPath:
+            self.is_flashing = False
+            GLib.idle_add(self.append_log, f"{T['err_crit']} {T['iso_portal']}")
+            GLib.idle_add(self.show_flash_failed, T["err_crit"], T["iso_portal"])
             return
         except Exception as e:  # noqa: BLE001
             self.is_flashing = False

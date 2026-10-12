@@ -10,6 +10,9 @@ finish-args:
   - --device=dri
   # disks are opened and listed through udisks, polkit asks the password
   - --system-talk-name=org.freedesktop.UDisks2
+  # an ISO from the file chooser must be a real file: udisks cannot read the
+  # document portal's FUSE mount
+  - --filesystem=home:ro
   # where udisks mounts the stick and the ISO: /run/media, /media on Debian
   - --filesystem=/run/media
   - --filesystem=/media
