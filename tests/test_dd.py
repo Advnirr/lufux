@@ -23,7 +23,7 @@ class Copy(unittest.TestCase):
             fd = os.open(dev, os.O_RDWR)
             try:
                 seen = []
-                done = U.copy_image(iso, fd, seen.append, stopped)
+                done = U.copy_image(iso, fd, lambda d, t: seen.append((d, t)), stopped)
             finally:
                 os.close(fd)
             with open(dev, "rb") as f:
@@ -34,7 +34,7 @@ class Copy(unittest.TestCase):
         done, data, seen = self.run_copy(image, b"\xff" * (U.CHUNK * 3))
         self.assertTrue(done)
         self.assertEqual(data[:len(image)], image)
-        self.assertEqual(seen[-1], 1.0)
+        self.assertEqual(seen[-1], (len(image), len(image)))
 
     def test_the_old_backup_gpt_is_wiped(self):
         done, data, _ = self.run_copy(b"\x01" * 4096, b"\xff" * (U.TAIL * 4))
@@ -52,6 +52,38 @@ class Copy(unittest.TestCase):
         self.assertFalse(done)
         self.assertEqual(data[:U.CHUNK], image[:U.CHUNK])
         self.assertEqual(data[U.CHUNK:U.CHUNK * 2], bytes(U.CHUNK))
+
+
+class Verify(unittest.TestCase):
+    def check(self, image, target):
+        with tempfile.TemporaryDirectory() as tmp:
+            iso = os.path.join(tmp, "image.iso")
+            with open(iso, "wb") as f:
+                f.write(image)
+            dev = os.path.join(tmp, "dev")
+            with open(dev, "wb") as f:
+                f.write(target)
+            fd = os.open(dev, os.O_RDWR)
+            try:
+                return U.verify_image(iso, fd, lambda d, t: None, lambda: False)
+            finally:
+                os.close(fd)
+
+    def test_a_good_copy_passes(self):
+        image = os.urandom(U.CHUNK * 2 + 4096)
+        self.assertTrue(self.check(image, image + bytes(U.CHUNK)))
+
+    def test_a_changed_byte_fails(self):
+        image = os.urandom(U.CHUNK * 2)
+        bad = bytearray(image)
+        bad[U.CHUNK + 5] ^= 1
+        with self.assertRaises(U.Mismatch):
+            self.check(image, bytes(bad))
+
+    def test_a_drive_smaller_than_the_image_fails(self):
+        image = os.urandom(U.CHUNK * 2)
+        with self.assertRaises(U.Mismatch):
+            self.check(image, image[:U.CHUNK])
 
 
 def disk(dev, size=8 << 30, removable=False, bus="usb", partition=False):

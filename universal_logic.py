@@ -3,6 +3,8 @@
 udisks opens the device and hands back a file descriptor, polkit asks the
 password. No root process of our own, so this works inside a Flatpak too.
 """
+import fcntl
+import mmap
 import os
 import re
 
@@ -24,11 +26,15 @@ def get_locale_dict():
             "unmount": "Отмонтирование...",
             "copy": "Копирование образа...",
             "sync": "Синхронизация ввода-вывода (sync)...",
+            "verify": "Проверка записи...",
+            "mismatch": "Образ записан некорректно",
         }
     return {
         "unmount": "Unmounting...",
         "copy": "Copying image...",
         "sync": "Syncing I/O (sync)...",
+        "verify": "Verifying...",
+        "mismatch": "The image was not written correctly",
     }
 
 
@@ -123,14 +129,48 @@ def copy_image(iso, fd, progress, stopped):
             while view:
                 view = view[os.write(fd, view):]
             done += len(chunk)
-            progress(done / total)
+            progress(done, total)
     return True
 
 
-def write_image(iso, dev, status, progress, stopped):
-    """Write iso onto dev. False if stopped() said to stop part way.
+class Mismatch(OSError):
+    """What was read back differs from the image."""
 
-    Raises GLib.Error for anything udisks refuses, OSError for a failed write.
+
+def verify_image(iso, fd, progress, stopped):
+    """Read fd back and compare with iso. False if stopped part way."""
+    # past the page cache, or this compares the image with itself
+    try:
+        fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_DIRECT)
+    except OSError:
+        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+    total = os.path.getsize(iso)
+    # O_DIRECT needs an aligned buffer, and mmap memory is page aligned
+    buf = mmap.mmap(-1, CHUNK)
+    done = 0
+    with open(iso, "rb") as src:
+        while chunk := src.read(CHUNK):
+            if stopped():
+                return False
+            got = 0
+            while got < len(chunk):
+                n = os.preadv(fd, [memoryview(buf)[got:]], done + got)
+                if n == 0:
+                    break
+                got += n
+            if got < len(chunk) or buf[:len(chunk)] != chunk:
+                raise Mismatch(get_locale_dict()["mismatch"])
+            done += len(chunk)
+            progress(done, total)
+    return True
+
+
+def write_image(iso, dev, status, progress, stopped, verify=False):
+    """Write iso onto dev, read it back if verify. False if stopped part way.
+
+    progress(done, total) counts bytes, from zero again for the read back.
+    Raises GLib.Error for anything udisks refuses, OSError for a failed write
+    and Mismatch for a failed check.
     """
     T = get_locale_dict()
     bus = _bus()
@@ -144,7 +184,7 @@ def write_image(iso, dev, status, progress, stopped):
     # whole write happens during fsync, with the bar already at 100%
     flags = os.O_EXCL | os.O_SYNC | os.O_CLOEXEC
     reply, fds = _call(bus, path, "org.freedesktop.UDisks2.Block", "OpenDevice",
-                       GLib.Variant("(sa{sv})", ("w", {"flags": GLib.Variant("i", flags)})), "(h)")
+                       GLib.Variant("(sa{sv})", ("rw" if verify else "w", {"flags": GLib.Variant("i", flags)})), "(h)")
     fd = fds.get(reply.unpack()[0])
     try:
         status(T["copy"])
@@ -152,6 +192,10 @@ def write_image(iso, dev, status, progress, stopped):
             return False
         status(T["sync"])
         os.fsync(fd)
+        if verify:
+            status(T["verify"])
+            if not verify_image(iso, fd, progress, stopped):
+                return False
     finally:
         os.close(fd)
     return True

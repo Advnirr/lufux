@@ -2,6 +2,7 @@ import gi
 import os
 import subprocess  # nosec B404 - all calls below use argv lists, never shell=True
 import threading
+import time
 import re
 import json
 from pathlib import Path
@@ -13,7 +14,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 # argv[0] of the root process, used by pkill -f to stop it
 WORKER_TAG = "lufux-flash-worker"
 
-DEFAULT_CONFIG = {"theme": 0, "lang": ""}
+DEFAULT_CONFIG = {"theme": 0, "lang": "", "verify": True}
 
 # the Windows modes still run root scripts, which the sandbox cannot
 IN_FLATPAK = os.path.exists("/.flatpak-info")
@@ -205,6 +206,8 @@ def load_config():
     # values are used as an env var and a theme index, so type-check them too
     if isinstance(data.get("lang"), str):
         cfg["lang"] = data["lang"]
+    if isinstance(data.get("verify"), bool):
+        cfg["verify"] = data["verify"]
     if isinstance(data.get("theme"), int) and data["theme"] in (0, 1, 2):
         cfg["theme"] = int(data["theme"])
     return cfg
@@ -271,6 +274,9 @@ def get_locale_dict():
             "summary_os": "Определенная система",
             "summary_scheme": "Схема разметки",
             "summary_edition": "Редакция",
+            "verify_row": "Проверить после записи",
+            "verify_hint": "Сравнить флешку с образом",
+            "speed_eta": "{pct}% · {speed} МБ/с · осталось {eta}",
             "nvme_lock": "Запись на NVMe заблокирована!",
             "warn1_title": "Внимание!",
             "warn1_body": "Все данные на накопителе\n<b>{dev}</b>\nбудут БЕЗВОЗВРАТНО УНИЧТОЖЕНЫ.\n\nПродолжить?",
@@ -306,7 +312,7 @@ def get_locale_dict():
             "dep_missing_title": "Отсутствуют зависимости",
             "dep_missing_body": "Для записи требуются системные пакеты:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nУстановить их сейчас?",
             "dep_unsupported": "Не хватает пакетов: <b>{deps}</b>\nПожалуйста, установите их вручную через пакетный менеджер.",
-            "flatpak_windows": "Образы Windows версия из Flatpak пока не записывает. Поставьте lufux из пакета для вашего дистрибутива.",
+            "flatpak_windows": "Запись Windows во Flatpak пока не поддерживается.",
             "btn_install": "Установить",
             "speed_title": "Накопитель слишком медленный",
             "speed_body": (
@@ -374,6 +380,9 @@ def get_locale_dict():
         "summary_os": "Detected OS",
         "summary_scheme": "Partition Scheme",
         "summary_edition": "Edition",
+        "verify_row": "Verify after writing",
+        "verify_hint": "Compare the drive with the image",
+        "speed_eta": "{pct}% · {speed} MB/s · {eta} left",
         "nvme_lock": "NVMe writing is disabled!",
         "warn1_title": "Warning!",
         "warn1_body": "All data on drive\n<b>{dev}</b>\nwill be PERMANENTLY DESTROYED.\n\nContinue?",
@@ -409,7 +418,7 @@ def get_locale_dict():
         "dep_missing_title": "Missing Dependencies",
         "dep_missing_body": "The following system packages are required:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nInstall them now?",
         "dep_unsupported": "Missing packages: <b>{deps}</b>\nPlease install them manually using your package manager.",
-        "flatpak_windows": "The Flatpak version cannot write Windows images yet. Install lufux from your distribution's package instead.",
+        "flatpak_windows": "Writing Windows is not supported in Flatpak yet.",
         "btn_install": "Install",
         "speed_title": "This drive is too slow",
         "speed_body": (
@@ -646,12 +655,12 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.iso_name.set_visible(True)
 
         logo = f"distributor-logo-{icon}"
-        if icon and Gtk.IconTheme.get_for_display(self.get_display()).has_icon(logo):
-            self.iso_page.set_paintable(None)
-            self.iso_page.set_icon_name(logo)
-        else:
-            self.iso_page.set_paintable(
-                Gdk.Texture.new_from_bytes(GLib.Bytes.new(badge_svg(name, color))))
+        has_logo = icon and Gtk.IconTheme.get_for_display(self.get_display()).has_icon(logo)
+        badge = None if has_logo else Gdk.Texture.new_from_bytes(GLib.Bytes.new(badge_svg(name, color)))
+        for page in (self.iso_page, self.summary_page):
+            page.set_paintable(badge)
+            if has_logo:
+                page.set_icon_name(logo)
 
     def on_wtg_toggled(self, check):
         # Windows To Go is always GPT/UEFI, so hide the scheme picker
@@ -699,6 +708,7 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def setup_page_summary(self):
         page = Adw.StatusPage(title=T["step_summary"], icon_name="emblem-system-symbolic")
+        self.summary_page = page
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, halign=Gtk.Align.CENTER)
         box.set_size_request(400, -1)
         page.set_child(box)
@@ -718,7 +728,16 @@ class LufuxWindow(Adw.ApplicationWindow):
         pref_group.add(self.sum_os)
         pref_group.add(self.sum_scheme)
         pref_group.add(self.sum_edition)
+
+        self.sum_verify = Adw.SwitchRow(title=T["verify_row"], subtitle=T["verify_hint"])
+        self.sum_verify.set_active(APP_CONFIG.get("verify", True))
+        self.sum_verify.connect("notify::active", self.on_verify_toggled)
+        pref_group.add(self.sum_verify)
         return page
+
+    def on_verify_toggled(self, row, param):
+        APP_CONFIG["verify"] = row.get_active()
+        save_config(APP_CONFIG)
 
     def setup_page_flash(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -825,6 +844,8 @@ class LufuxWindow(Adw.ApplicationWindow):
             self.sum_scheme.set_subtitle(scheme_text)
         else:
             self.sum_scheme.set_subtitle(T["scheme_dd"])
+        # only dd writes the image as is, so only it can be compared
+        self.sum_verify.set_visible(os_idx != 0)
 
     # --- Confirmation and start ---
 
@@ -1015,9 +1036,10 @@ class LufuxWindow(Adw.ApplicationWindow):
             scheme = "gpt" if self.scheme_dropdown.get_selected() == 0 else "mbr"
             wtg = self.wtg_check.get_active()
             img_index = self.selected_img_index()
+            verify = os_idx != 0 and self.sum_verify.get_active()
             threading.Thread(
                 target=self.worker_thread,
-                args=(self.iso_path, self.selected_dev, os_idx, scheme, wtg, img_index),
+                args=(self.iso_path, self.selected_dev, os_idx, scheme, wtg, img_index, verify),
                 daemon=True,
             ).start()
 
@@ -1398,15 +1420,27 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     # --- Worker ---
 
-    def dd_worker(self, iso, dev):
+    def dd_worker(self, iso, dev, verify):
+        started = [time.monotonic()]
+
         def status(msg):
+            started[0] = time.monotonic()
             GLib.idle_add(self.update_flash_progress, 0.0, msg)
             GLib.idle_add(self.append_log, f"[*] {msg}")
 
+        def progress(done, total):
+            elapsed = time.monotonic() - started[0]
+            label = None
+            if elapsed >= 1 and done:
+                speed = done / elapsed
+                eta = int((total - done) / speed)
+                label = T["speed_eta"].format(pct=done * 100 // total, speed=f"{speed / 1e6:.1f}",
+                                              eta=f"{eta // 60}:{eta % 60:02d}")
+            GLib.idle_add(self.update_flash_progress, done / total, label)
+
         try:
-            done = write_image(iso, dev, status,
-                               lambda f: GLib.idle_add(self.update_flash_progress, f),
-                               lambda: not self.is_flashing)
+            done = write_image(iso, dev, status, progress,
+                               lambda: not self.is_flashing, verify)
         except GLib.Error as e:
             self.is_flashing = False
             if is_canceled(e):
@@ -1427,10 +1461,10 @@ class LufuxWindow(Adw.ApplicationWindow):
         else:
             GLib.idle_add(self.show_interrupted_error, True)
 
-    def worker_thread(self, iso, dev, os_idx, scheme, wtg, img_index=1):
+    def worker_thread(self, iso, dev, os_idx, scheme, wtg, img_index=1, verify=False):
         if os_idx != 0:
             self.proc = None
-            self.dd_worker(iso, dev)
+            self.dd_worker(iso, dev, verify)
             return
         script = get_windows_togo_script(img_index) if wtg else get_windows_script(scheme)
 
