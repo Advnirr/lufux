@@ -64,6 +64,11 @@
   </supports>
 
   <releases>
+    <release version="1.4.1" date="2026-10-12">
+      <description>
+        <p>Flatpak: Windows images picked in the file chooser open again.</p>
+      </description>
+    </release>
     <release version="1.4.0" date="2026-10-12">
       <description>
         <p>All disk work goes through UDisks2, no root scripts. Windows To Go works the same way. Flatpak build. Linux images are checked after writing.</p>
