@@ -7,13 +7,17 @@ import sys
 import json
 from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".config" / "lufux"
+# Flatpak points XDG_CONFIG_HOME into the sandbox
+CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "lufux"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 # argv[0] of the root process, used by pkill -f to stop it
 WORKER_TAG = "lufux-flash-worker"
 
 DEFAULT_CONFIG = {"theme": 0, "lang": ""}
+
+# the Windows modes still run root scripts, which the sandbox cannot
+IN_FLATPAK = os.path.exists("/.flatpak-info")
 
 # What a drive has to manage before Windows To Go is worth deploying onto it.
 # The random figure is the one that decides: a stick doing 8 MB/s sequentially
@@ -182,14 +186,8 @@ def fmt_size(size):
 
 
 def device_size_bytes(dev):
-    """The whole device's size in bytes, or 0 when lsblk cannot say."""
-    try:
-        res = subprocess.run(  # nosec B603
-            [resolve_bin('lsblk'), '-bdno', 'SIZE', dev],
-            capture_output=True, text=True, check=True, timeout=10)
-        return int(res.stdout.split("\n")[0].strip())
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return 0
+    """The whole device's size in bytes, or 0 when udisks cannot say."""
+    return device_size(dev)
 
 
 def load_config():
@@ -228,7 +226,7 @@ from gi.repository import Gtk, Adw, GLib, Gio, Gdk
 # importing logic
 from windows_logic import get_windows_script
 from windows_togo_logic import get_windows_togo_script
-from universal_logic import get_linux_script
+from universal_logic import write_image, list_drives, device_size, is_canceled
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
 
 # here I am
@@ -308,6 +306,7 @@ def get_locale_dict():
             "dep_missing_title": "Отсутствуют зависимости",
             "dep_missing_body": "Для записи требуются системные пакеты:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nУстановить их сейчас?",
             "dep_unsupported": "Не хватает пакетов: <b>{deps}</b>\nПожалуйста, установите их вручную через пакетный менеджер.",
+            "flatpak_windows": "Образы Windows версия из Flatpak пока не записывает. Поставьте lufux из пакета для вашего дистрибутива.",
             "btn_install": "Установить",
             "speed_title": "Накопитель слишком медленный",
             "speed_body": (
@@ -410,6 +409,7 @@ def get_locale_dict():
         "dep_missing_title": "Missing Dependencies",
         "dep_missing_body": "The following system packages are required:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nInstall them now?",
         "dep_unsupported": "Missing packages: <b>{deps}</b>\nPlease install them manually using your package manager.",
+        "flatpak_windows": "The Flatpak version cannot write Windows images yet. Install lufux from your distribution's package instead.",
         "btn_install": "Install",
         "speed_title": "This drive is too slow",
         "speed_body": (
@@ -859,6 +859,11 @@ class LufuxWindow(Adw.ApplicationWindow):
         # deps check: dd needs none of the Windows tools, and GRUB is only needed
         # for the MBR media it makes BIOS-bootable
         windows = self.os_dropdown.get_selected() == 0
+        if windows and IN_FLATPAK:
+            dialog = Adw.AlertDialog(heading=T["err_crit"], body=T["flatpak_windows"])
+            dialog.add_response("ok", T["btn_close_dialog"])
+            dialog.choose(self, None, lambda *_: None)
+            return
         bios_boot = (windows
                      and not self.wtg_check.get_active()
                      and self.scheme_dropdown.get_selected() == 1)
@@ -1073,6 +1078,10 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def kill_worker(self):
         self.is_flashing = False
+        if self.proc is None:
+            # dd runs in this process: dd_worker sees the flag and reports
+            self.append_log(T["stopping"])
+            return
         proc = self.proc
         pgid = None
         if proc:
@@ -1223,24 +1232,10 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def get_usb_drives(self):
         try:
-            res = subprocess.run(  # nosec B603
-                [resolve_bin('lsblk'), '-I', '8', '-d', '-n', '-o', 'NAME,RM,TRAN,SIZE,MODEL'],
-                capture_output=True, text=True, check=True,
-            )
-            # major 8 is every SCSI/SATA disk, so without this filter the
-            # internal system drive is offered up for wiping
-            drives = []
-            for line in res.stdout.split('\n'):
-                fields = line.split(None, 4)
-                if len(fields) < 4:
-                    continue
-                name, removable, transport, size = fields[:4]
-                model = fields[4].strip() if len(fields) > 4 else ""
-                if removable != "1" and transport != "usb":
-                    continue
-                drives.append(" ".join(x for x in (name, size, model) if x))
+            drives = [" ".join(x for x in (dev.removeprefix("/dev/"), fmt_size(size), model) if x)
+                      for dev, size, model in list_drives()]
             return drives if drives else [T["no_drives"]]
-        except (subprocess.SubprocessError, OSError):
+        except GLib.Error:
             return [T["no_drives"]]
 
     def on_select_iso(self, btn):
@@ -1332,13 +1327,41 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     # --- Worker ---
 
-    def worker_thread(self, iso, dev, os_idx, scheme, wtg, img_index=1):
-        if os_idx == 0 and wtg:
-            script = get_windows_togo_script(img_index)
-        elif os_idx == 0:
-            script = get_windows_script(scheme)
+    def dd_worker(self, iso, dev):
+        def status(msg):
+            GLib.idle_add(self.update_flash_progress, 0.0, msg)
+            GLib.idle_add(self.append_log, f"[*] {msg}")
+
+        try:
+            done = write_image(iso, dev, status,
+                               lambda f: GLib.idle_add(self.update_flash_progress, f),
+                               lambda: not self.is_flashing)
+        except GLib.Error as e:
+            self.is_flashing = False
+            if is_canceled(e):
+                GLib.idle_add(self.append_log, T["canceled"])
+                GLib.idle_add(self.show_flash_failed, T["canceled"], "")
+            else:
+                msg = re.sub(r"^GDBus\.Error:\S+\s*", "", e.message)
+                GLib.idle_add(self.append_log, f"{T['err_crit']} {msg}")
+                GLib.idle_add(self.show_flash_failed, T["err_crit"], f"{T['flash_failed']}\n\n{msg}")
+            return
+        except Exception as e:  # noqa: BLE001
+            self.is_flashing = False
+            GLib.idle_add(self.append_log, f"{T['err_crit']} {e}")
+            GLib.idle_add(self.show_flash_failed, T["err_crit"], f"{T['flash_failed']}\n\n{e}")
+            return
+        if done:
+            GLib.idle_add(self.on_flash_success)
         else:
-            script = get_linux_script()
+            GLib.idle_add(self.show_interrupted_error, True)
+
+    def worker_thread(self, iso, dev, os_idx, scheme, wtg, img_index=1):
+        if os_idx != 0:
+            self.proc = None
+            self.dd_worker(iso, dev)
+            return
+        script = get_windows_togo_script(img_index) if wtg else get_windows_script(scheme)
 
         # run via bash -c, pass iso/dev/scheme as $1/$2/$3 instead of a temp
         # file, so the iso name can't be interpreted by a shell. WORKER_TAG is

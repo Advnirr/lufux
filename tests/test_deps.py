@@ -81,10 +81,8 @@ class RequiredCommands(unittest.TestCase):
             self.assertEqual(D.check_dependencies(), [
                 "wimlib-imagex", "rsync", "parted", "pkexec", "mkfs.vfat", "mkfs.ntfs"])
 
-    def test_the_dd_path_needs_only_pkexec(self):
+    def test_the_dd_path_needs_nothing(self):
         with mock.patch.object(D, "_have_cmd", return_value=False):
-            self.assertEqual(D.check_dependencies(windows=False), ["pkexec"])
-        with mock.patch.object(D, "_have_cmd", lambda name: name == "pkexec"):
             self.assertEqual(D.check_dependencies(windows=False), [])
 
     def test_a_command_only_in_sbin_counts_as_present(self):
