@@ -10,7 +10,7 @@ PKG_MAP = {
         "pkexec": "polkit",
         "mkfs.vfat": "dosfstools",
         "mkfs.ntfs": "ntfs-3g",
-        "grub-install": "grub"
+        "grub-mkimage": "grub"
     },
     "debian": {
         "wimlib-imagex": "wimtools",
@@ -19,9 +19,9 @@ PKG_MAP = {
         "pkexec": "policykit-1",
         "mkfs.vfat": "dosfstools",
         "mkfs.ntfs": "ntfs-3g",
-        # grub-install is in grub2-common, the BIOS modules in grub-pc-bin;
+        # grub-mkimage is in grub-common, the BIOS modules in grub-pc-bin;
         # neither installs a bootloader onto this machine, unlike grub-pc
-        "grub-install": ("grub2-common", "grub-pc-bin")
+        "grub-mkimage": ("grub-common", "grub-pc-bin")
     },
     "fedora": {
         "wimlib-imagex": "wimlib-utils",
@@ -30,7 +30,7 @@ PKG_MAP = {
         "pkexec": "polkit",
         "mkfs.vfat": "dosfstools",
         "mkfs.ntfs": "ntfsprogs",
-        "grub-install": ("grub2-tools", "grub2-pc-modules")
+        "grub-mkimage": ("grub2-tools", "grub2-pc-modules")
     }
 }
 
@@ -38,9 +38,10 @@ PKG_MAP = {
 # on Debian, so shutil.which alone reports them missing when they are installed
 SEARCH_DIRS = ("/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/local/sbin")
 
-# grub-install alone is not enough: a UEFI-only GRUB install has the command
-# but not the i386-pc modules, and it would fail only after the drive is wiped
-GRUB_BIOS_MODULE = "/usr/lib/grub/i386-pc/ntldr.mod"
+# grub-mkimage alone is not enough: a UEFI-only GRUB install has the command
+# but not the i386-pc modules, and it would fail only after the drive is wiped.
+# /app is the Flatpak's own GRUB.
+GRUB_BIOS_MODULES = ("/usr/lib/grub/i386-pc/ntldr.mod", "/app/lib/grub/i386-pc/ntldr.mod")
 
 def _have_cmd(name):
     if shutil.which(name):
@@ -48,15 +49,18 @@ def _have_cmd(name):
     return any(os.access(os.path.join(d, name), os.X_OK) for d in SEARCH_DIRS)
 
 def _have_bios_grub():
-    return ((_have_cmd("grub-install") or _have_cmd("grub2-install"))
-            and os.path.isfile(GRUB_BIOS_MODULE))
+    return ((_have_cmd("grub-mkimage") or _have_cmd("grub2-mkimage"))
+            and any(os.path.isfile(m) for m in GRUB_BIOS_MODULES))
 
 def check_dependencies(windows=True, bios_boot=False, udisks=False):
     # the dd path goes through udisks and runs nothing of ours
     if not windows:
         return []
-    # GPT media goes through udisks too and runs only wimlib, as the user
+    # installer media goes through udisks: GPT splits the image with wimlib,
+    # MBR needs GRUB's images; mkntfs is udisks' business, asked separately
     if udisks:
+        if bios_boot:
+            return [] if _have_bios_grub() else ["grub-mkimage"]
         return [] if _have_cmd("wimlib-imagex") else ["wimlib-imagex"]
     # mkfs.vfat (GPT path) and mkfs.ntfs (MBR path) are called by the Windows
     # script after the drive is already wiped, so they must be caught up front
@@ -65,7 +69,7 @@ def check_dependencies(windows=True, bios_boot=False, udisks=False):
     missing = [cmd for cmd in required_cmds if not _have_cmd(cmd)]
     # only MBR media boots through GRUB; nobody else should have to install it
     if bios_boot and not _have_bios_grub():
-        missing.append("grub-install")
+        missing.append("grub-mkimage")
     return missing
 
 def get_distro_info():

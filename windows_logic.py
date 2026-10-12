@@ -2,11 +2,12 @@ import os
 import re
 import shutil
 import subprocess  # nosec B404 - argv lists only, run as the user
+import tempfile
 
 from gi.repository import GLib
 
-from udisks_logic import (FILESYSTEM, NO_OPTIONS, bus, call, make_fat32, mount,
-                          mounted_iso, resolve, unmount, unmount_all)
+from udisks_logic import (FILESYSTEM, NO_OPTIONS, bus, call, make_volume, mount,
+                          mounted_iso, open_device, resolve, unmount, unmount_all)
 
 # Locals s s s
 def get_locale_dict():
@@ -34,201 +35,6 @@ def get_locale_dict():
         "sync": "Syncing I/O (sync)...",
         "no_space": "Not enough space in {dir} to repack the image",
     }
-
-def get_windows_script(scheme="gpt"):
-    # iso/dev/scheme come in as $1/$2/$3, mount points via mktemp -d (no
-    # predictable /tmp paths, no shell injection from the file name)
-    T = get_locale_dict()
-
-    # schemes
-    if scheme == "gpt":
-        part_cmds = """
-parted -s "$DEV_PATH" mklabel gpt
-parted -s "$DEV_PATH" mkpart primary fat32 1MiB 100%
-parted -s "$DEV_PATH" set 1 msftdata on
-sleep 2
-mkfs.vfat -F 32 -n "WINUSB" "${DEV_PATH}${PS}1"
-"""
-        boot_cmds = ""
-    else:
-        part_cmds = """
-parted -s "$DEV_PATH" mklabel msdos
-parted -s "$DEV_PATH" mkpart primary ntfs 1MiB 100%
-parted -s "$DEV_PATH" set 1 boot on
-sleep 2
-# the partition start, handed to mkntfs for the reason windows_togo_logic.py
-# gives: where the geometry ioctls answer nothing it writes zero instead
-PART_START=$(cat "/sys/class/block/$(basename "${DEV_PATH}${PS}1")/start" 2>/dev/null || echo 0)
-SECTOR_SIZE=$(blockdev --getss "$DEV_PATH" 2>/dev/null || echo 512)
-NTFS_START=""
-if [ "$PART_START" -gt 0 ] 2>/dev/null && [ "$SECTOR_SIZE" -gt 0 ] 2>/dev/null; then
-    NTFS_START="-p $((PART_START * 512 / SECTOR_SIZE))"
-fi
-mkfs.ntfs -f $NTFS_START -L "WINUSB" "${DEV_PATH}${PS}1"
-"""
-        # A BIOS runs the boot code in the MBR and then the partition's, and a
-        # drive laid out as above has neither: parted writes no boot code and
-        # mkfs.ntfs writes a "This is not a bootable disk" stub. GRUB provides
-        # both and loads bootmgr as a file, the way WoeUSB does; a Windows 11
-        # 24H2 installer booted that way under SeaBIOS reaches Setup.
-        boot_cmds = f"""
-echo "STATUS: {T['grub']}"
-GRUB_INSTALL=$(command -v grub-install || command -v grub2-install || true)
-if [ -z "$GRUB_INSTALL" ]; then
-    echo "grub-install not found" >&2
-    exit 1
-fi
-"$GRUB_INSTALL" --target=i386-pc --boot-directory="$USB_MNT" --force "$DEV_PATH" 2>&1
-# Fedora's grub2-install names the directory after itself
-GRUB_DIR="$USB_MNT/grub"
-[ -d "$USB_MNT/grub2" ] && GRUB_DIR="$USB_MNT/grub2"
-# every module is loaded by name: booted from this NTFS volume, GRUB found no
-# command it had not loaded yet, although grub-fstest reads its command.lst
-# intact - so autoloading is not relied on
-cat > "$GRUB_DIR/grub.cfg" <<'EOF'
-insmod part_msdos
-insmod ntfs
-insmod ntldr
-ntldr /bootmgr
-boot
-EOF
-"""
-
-    script = f"""#!/bin/bash
-set -eo pipefail
-
-ISO_PATH="$1"
-DEV_PATH="$2"
-SCHEME="$3"
-
-ISO_MNT=$(mktemp -d /tmp/lufux_iso.XXXXXX)
-USB_MNT=$(mktemp -d /tmp/lufux_usb.XXXXXX)
-# the exported WIM is >4 GB by construction, so it cannot live on /tmp, which
-# is a RAM-backed tmpfs on Arch and Fedora. mktemp -d (not -u) also closes the
-# TOCTOU window that a name-only temp path leaves open for a root writer.
-WORK_DIR=$(mktemp -d "${{TMPDIR:-/var/tmp}}/lufux_wim.XXXXXX")
-WORK_WIM="$WORK_DIR/install.wim"
-
-cleanup() {{
-    trap - EXIT
-    set +e
-    # this trap also fires when the GUI cancels the flash, and bash's children
-    # outlive bash. Unmounting while rsync/cp still holds a write fd either
-    # fails with EBUSY (leaking the mktemp dir) or loses the FAT32/NTFS
-    # metadata, so take the children down and wait for them to actually go.
-    pkill -P $$ 2>/dev/null
-    i=0
-    while [ $i -lt 50 ] && pgrep -P $$ >/dev/null 2>&1; do
-        sleep 0.1
-        i=$((i+1))
-    done
-    pkill -9 -P $$ 2>/dev/null
-    sync
-    # a child killed a moment ago can still hold the mount, and a single
-    # attempt then leaves it behind - that is how /tmp/lufux_* directories and
-    # their loop devices survive a cancelled flash
-    i=0
-    while [ $i -lt 10 ]; do
-        umount "$ISO_MNT" "$USB_MNT" 2>/dev/null
-        mountpoint -q "$ISO_MNT" || mountpoint -q "$USB_MNT" || break
-        sleep 0.5
-        i=$((i+1))
-    done
-    rmdir "$ISO_MNT" "$USB_MNT" 2>/dev/null
-    rm -rf "$WORK_DIR" 2>/dev/null
-}}
-trap cleanup EXIT
-
-echo "STATUS: {T['prep']}"
-umount "$DEV_PATH"* 2>/dev/null || true
-wipefs -a "$DEV_PATH"
-
-# sd* names partitions by appending a number, but a device whose own name ends
-# in a digit - nvme0n1, mmcblk0, loop0 - separates them with a "p"
-case "$DEV_PATH" in
-    *[0-9]) PS="p" ;;
-    *)      PS="" ;;
-esac
-
-# applying schemes
-{part_cmds}
-
-sleep 2
-mount -o loop,ro "$ISO_PATH" "$ISO_MNT"
-mount "${{DEV_PATH}}${{PS}}1" "$USB_MNT"
-
-echo "STATUS: {T['copy_base']}"
-# Copying
-rsync -rlptD --no-owner --no-group --info=progress2 --exclude='sources/install.wim' --exclude='sources/install.esd' "$ISO_MNT/" "$USB_MNT/"
-
-TF=""
-[ -f "$ISO_MNT/sources/install.wim" ] && TF="$ISO_MNT/sources/install.wim"
-[ -f "$ISO_MNT/sources/install.esd" ] && TF="$ISO_MNT/sources/install.esd"
-
-if [ -n "$TF" ]; then
-    FS=$(stat -c%s "$TF")
-
-    # cuz of fat32 file size limit if we use MBR (NTFS) or file size < 4 GB, theeeeeen copying.
-    if [ "$FS" -lt 4000000000 ] || [ "$SCHEME" == "mbr" ]; then
-        echo "STATUS: {T['copy_wim']}"
-        cp "$TF" "$USB_MNT/sources/"
-    else
-        # if file > 4 GB and filesystem is FAT32 (GPT), then using wimlib
-        echo "STATUS: {T['split_wim']}"
-        set +e
-        wimlib-imagex split "$TF" "$USB_MNT/sources/install.swm" 3800 2>&1
-        RES=$?
-        set -e
-
-        # Code 68 I'm lazy
-        if [ $RES -eq 68 ]; then
-            echo "STATUS: {T['conv_lzx']}"
-            rm -f "$WORK_WIM" "$USB_MNT/sources/install.swm" 2>/dev/null || true
-
-            # fail loudly here rather than filling the filesystem (or RAM) and
-            # dying on an already-wiped drive
-            AVAIL=$(df -P -B1 "$WORK_DIR" | awk 'NR==2 {{print $4}}')
-            if [ "$AVAIL" -lt "$FS" ]; then
-                echo "Not enough free space in $WORK_DIR: need $FS bytes, have $AVAIL" >&2
-                exit 1
-            fi
-
-            wimlib-imagex export "$TF" all "$WORK_WIM" --compress=maximum 2>&1
-
-            echo "STATUS: {T['split_wim']}"
-            wimlib-imagex split "$WORK_WIM" "$USB_MNT/sources/install.swm" 3800 2>&1
-            rm -f "$WORK_WIM"
-        elif [ $RES -ne 0 ]; then
-            exit $RES
-        fi
-    fi
-fi
-{boot_cmds}
-echo "STATUS: {T['sync']}"
-sync
-
-# unmount before reporting success: the GUI reveals the Done button the moment
-# it sees DONE, and a user pulling the stick then must not lose metadata
-UMOUNTED=0
-i=0
-while [ $i -lt 5 ]; do
-    if umount "$USB_MNT" 2>/dev/null; then
-        UMOUNTED=1
-        break
-    fi
-    sleep 1
-    i=$((i+1))
-done
-if [ "$UMOUNTED" -ne 1 ]; then
-    echo "Failed to unmount $USB_MNT" >&2
-    exit 1
-fi
-umount "$ISO_MNT" 2>/dev/null || true
-
-echo "STATUS: DONE"
-"""
-    return script
-
 
 CHUNK = 4 << 20
 # FAT32 holds files up to 4 GiB - 1; the script splits from 4 GB, as it did
@@ -306,7 +112,7 @@ def _wimlib(args, progress, stopped):
     return code
 
 
-def _fill(src, dst, T, status, progress, stopped):
+def _fill(src, dst, fat32, T, status, progress, stopped):
     status(T["copy_base"])
     _copy_tree(src, dst, WIM_NAMES, progress, stopped)
 
@@ -315,7 +121,7 @@ def _fill(src, dst, T, status, progress, stopped):
     if not image:
         return
     size = os.path.getsize(image)
-    if size < SPLIT_FROM:
+    if size < SPLIT_FROM or not fat32:
         status(T["copy_wim"])
         done = [0]
 
@@ -351,9 +157,96 @@ def _fill(src, dst, T, status, progress, stopped):
             os.remove(repacked)
 
 
-def write_windows_gpt(iso, dev, status, progress, stopped):
-    """Windows installer media on GPT/FAT32 through udisks. False if stopped.
+# GRUB 2.14 include/grub/i386/pc/boot.h and offsets.h, what grub-bios-setup
+# patches when it embeds core.img right after the MBR
+SECTOR = 512
+BPB = slice(0x3, 0x5a)
+KERNEL_SECTOR = slice(0x5c, 0x64)
+BOOT_DRIVE = 0x64
+DRIVE_CHECK = slice(0x66, 0x68)
+TABLE = slice(0x1b8, 0x1fe)
+BLOCKLIST = 12
+CORE_SEGMENT = 0x800 + (SECTOR >> 4)
+NO_RS_LENGTH = SECTOR + 0x14
+# the gap before the partition at 1 MiB
+MAX_CORE_SECTORS = 2047
+GRUB_DIRS = ("/app/lib/grub/i386-pc", "/usr/lib/grub/i386-pc")
+GRUB_MODULES = ("biosdisk", "part_msdos", "ntfs", "ntldr")
+# everything is built into core.img, nothing of GRUB's lives on the NTFS
+GRUB_CFG = "ntldr /bootmgr\nboot\n"
 
+
+def bios_boot_code(boot_img, core_img, sector0):
+    """(MBR, core sectors) to write at LBA 0 and from LBA 1 on.
+
+    What grub-bios-setup does for this one layout, which it will not do on an
+    fd: it wants the device path and probes the whole disk.
+    """
+    boot = bytearray(boot_img)
+    boot[BPB] = sector0[BPB]
+    boot[TABLE] = sector0[TABLE]
+    # a BIOS that passes a wrong drive number is answered with 0x80
+    boot[DRIVE_CHECK] = b"\x90\x90"
+    boot[BOOT_DRIVE] = 0xFF
+    boot[KERNEL_SECTOR] = (1).to_bytes(8, "little")
+
+    nsec = -(-len(core_img) // SECTOR)
+    if nsec > MAX_CORE_SECTORS:
+        raise OSError("core.img does not fit before the partition")
+    core = bytearray(core_img) + bytes(nsec * SECTOR - len(core_img))
+    if core[NO_RS_LENGTH:NO_RS_LENGTH + 2] == b"\xff\xff":
+        raise OSError("core.img version mismatch")
+    first = SECTOR - BLOCKLIST
+    at = first
+    while int.from_bytes(core[at + 8:at + 10], "little"):
+        core[at:at + BLOCKLIST] = bytes(BLOCKLIST)
+        at -= BLOCKLIST
+    end = first
+    if nsec > 1:
+        # the first sector is loaded by boot.img, the rest by this list
+        core[first:first + BLOCKLIST] = ((2).to_bytes(8, "little") + (nsec - 1).to_bytes(2, "little")
+                                         + CORE_SEGMENT.to_bytes(2, "little"))
+        end -= BLOCKLIST
+    core[end:end + BLOCKLIST] = bytes(BLOCKLIST)
+    return bytes(boot), bytes(core)
+
+
+def _grub_images():
+    """(boot.img, core.img) built from the GRUB on this system or in the Flatpak."""
+    mkimage = shutil.which("grub-mkimage") or shutil.which("grub2-mkimage")
+    modules = next((d for d in GRUB_DIRS if os.path.isfile(os.path.join(d, "boot.img"))), None)
+    if not mkimage or not modules:
+        raise FileNotFoundError("grub-mkimage")
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = os.path.join(tmp, "early.cfg")
+        with open(cfg, "w", encoding="ascii") as f:
+            f.write(GRUB_CFG)
+        core = os.path.join(tmp, "core.img")
+        # (,msdos1): the first partition of whichever drive the BIOS booted
+        subprocess.run([mkimage, "-O", "i386-pc", "-d", modules, "-o", core, "-c", cfg,  # nosec B603
+                        "-p", "(,msdos1)/", *GRUB_MODULES], check=True, capture_output=True)
+        with open(os.path.join(modules, "boot.img"), "rb") as f:
+            boot = f.read()
+        with open(core, "rb") as f:
+            return boot, f.read()
+
+
+def _install_bios_boot(conn, path):
+    boot_img, core_img = _grub_images()
+    fd = open_device(conn, path, "rw")
+    try:
+        boot, core = bios_boot_code(boot_img, core_img, os.pread(fd, SECTOR, 0))
+        os.pwrite(fd, core, SECTOR)
+        os.pwrite(fd, boot, 0)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def write_windows(iso, dev, status, progress, stopped, scheme="gpt"):
+    """Windows installer media through udisks. False if stopped.
+
+    gpt: FAT32 for UEFI. mbr: NTFS with GRUB for Legacy BIOS.
     Raises GLib.Error for anything udisks refuses, OSError for the rest.
     """
     T = get_locale_dict()
@@ -362,17 +255,22 @@ def write_windows_gpt(iso, dev, status, progress, stopped):
 
     status(T["prep"])
     unmount_all(conn, path)
-    part = make_fat32(conn, path, "WINUSB")
+    part = make_volume(conn, path, scheme, "WINUSB")
     mounted = False
     try:
         usb = mount(conn, part)
         mounted = True
         with mounted_iso(iso) as src:
-            _fill(src, usb, T, status, progress, stopped)
+            _fill(src, usb, scheme == "gpt", T, status, progress, stopped)
         status(T["sync"])
         # an unmount that fails here must fail the flash: data may be unwritten
         call(conn, part, FILESYSTEM, "Unmount", NO_OPTIONS, "()")
         mounted = False
+        if scheme == "mbr":
+            # last: closing the disk makes udev reread the partition table,
+            # and the partition object goes away for a moment
+            status(T["grub"])
+            _install_bios_boot(conn, path)
         return True
     except Stopped:
         return False

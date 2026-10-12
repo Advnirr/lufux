@@ -195,10 +195,10 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, GLib, Gio, Gdk
 
 # importing logic
-from windows_logic import get_windows_script, write_windows_gpt
+from windows_logic import write_windows
 from windows_togo_logic import get_windows_togo_script
 from universal_logic import write_image
-from udisks_logic import list_drives, device_size, is_canceled, mounted_iso
+from udisks_logic import list_drives, device_size, is_canceled, mounted_iso, can_format
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
 from iso_logic import volume_label, identify, windows_name
 
@@ -286,7 +286,7 @@ def get_locale_dict():
             "dep_missing_title": "Отсутствуют зависимости",
             "dep_missing_body": "Для записи требуются системные пакеты:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nУстановить их сейчас?",
             "dep_unsupported": "Не хватает пакетов: <b>{deps}</b>\nПожалуйста, установите их вручную через пакетный менеджер.",
-            "flatpak_windows": "Во Flatpak пока работает только установщик Windows на GPT.",
+            "flatpak_windows": "Windows To Go во Flatpak пока не поддерживается.",
             "btn_install": "Установить",
             "speed_title": "Накопитель слишком медленный",
             "speed_body": (
@@ -396,7 +396,7 @@ def get_locale_dict():
         "dep_missing_title": "Missing Dependencies",
         "dep_missing_body": "The following system packages are required:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nInstall them now?",
         "dep_unsupported": "Missing packages: <b>{deps}</b>\nPlease install them manually using your package manager.",
-        "flatpak_windows": "Only the Windows installer on GPT works in Flatpak yet.",
+        "flatpak_windows": "Windows To Go is not supported in Flatpak yet.",
         "btn_install": "Install",
         "speed_title": "This drive is too slow",
         "speed_body": (
@@ -904,9 +904,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         # deps check: dd needs none of the Windows tools, and GRUB is only needed
         # for the MBR media it makes BIOS-bootable
         windows = self.os_dropdown.get_selected() == 0
-        gpt = (windows and not self.wtg_check.get_active()
-               and self.scheme_dropdown.get_selected() == 0)
-        if windows and not gpt and IN_FLATPAK:
+        wtg = windows and self.wtg_check.get_active()
+        if wtg and IN_FLATPAK:
             dialog = Adw.AlertDialog(heading=T["err_crit"], body=T["flatpak_windows"])
             dialog.add_response("ok", T["btn_close_dialog"])
             dialog.choose(self, None, lambda *_: None)
@@ -914,7 +913,10 @@ class LufuxWindow(Adw.ApplicationWindow):
         bios_boot = (windows
                      and not self.wtg_check.get_active()
                      and self.scheme_dropdown.get_selected() == 1)
-        missing = check_dependencies(windows=windows, bios_boot=bios_boot, udisks=gpt)
+        missing = check_dependencies(windows=windows, bios_boot=bios_boot, udisks=not wtg)
+        # udisks formats NTFS with the host's mkntfs, which only it can see
+        if bios_boot and not can_format("ntfs"):
+            missing.append("mkfs.ntfs")
         if missing:
             self.prompt_install_dependencies(missing)
         else:
@@ -1465,14 +1467,14 @@ class LufuxWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.show_interrupted_error, True)
 
     def worker_thread(self, iso, dev, os_idx, scheme, wtg, img_index=1, verify=False):
-        if os_idx != 0 or (not wtg and scheme == "gpt"):
+        if not wtg:
             self.proc = None
             if os_idx != 0:
                 self.udisks_worker(write_image, iso, dev, verify)
             else:
-                self.udisks_worker(write_windows_gpt, iso, dev)
+                self.udisks_worker(write_windows, iso, dev, scheme)
             return
-        script = get_windows_togo_script(img_index) if wtg else get_windows_script(scheme)
+        script = get_windows_togo_script(img_index)
 
         # run via bash -c, pass iso/dev/scheme as $1/$2/$3 instead of a temp
         # file, so the iso name can't be interpreted by a shell. WORKER_TAG is

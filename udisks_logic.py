@@ -143,16 +143,43 @@ def mounted_iso(iso):
             call(conn, loop, "org.freedesktop.UDisks2.Loop", "Delete", NO_OPTIONS, "()")
 
 
-def make_fat32(conn, path, label):
-    """Wipe the disk, put one FAT32 partition on it and return the partition."""
+def make_volume(conn, path, scheme, label):
+    """Wipe the disk and put one partition across it, starting at 1 MiB.
+
+    gpt gets FAT32, mbr gets NTFS on an active partition. Returns the partition.
+    """
+    gpt = scheme == "gpt"
     call(conn, path, BLOCK, "Format",
-         GLib.Variant("(sa{sv})", ("gpt", {})), "()")
+         GLib.Variant("(sa{sv})", ("gpt" if gpt else "dos", {})), "()")
+    options = {} if gpt else {"partition-type": GLib.Variant("s", "primary")}
     reply, _ = call(conn, path, "org.freedesktop.UDisks2.PartitionTable", "CreatePartitionAndFormat",
                     GLib.Variant("(ttssa{sv}sa{sv})", (
-                        1 << 20, 0, BASIC_DATA, "", {},
-                        "vfat", {"label": GLib.Variant("s", label)})),
+                        1 << 20, 0, BASIC_DATA if gpt else "0x07", "", options,
+                        "vfat" if gpt else "ntfs", {"label": GLib.Variant("s", label)})),
                     "(o)")
-    return reply.unpack()[0]
+    part = reply.unpack()[0]
+    if not gpt:
+        # some BIOSes boot a USB disk only with an active partition
+        call(conn, part, PARTITION, "SetFlags", GLib.Variant("(ta{sv})", (0x80, {})), "()")
+    return part
+
+
+def open_device(conn, path, mode, flags=0):
+    """An fd on the whole device. O_EXCL: refused while anything holds it."""
+    reply, fds = call(conn, path, BLOCK, "OpenDevice",
+                      GLib.Variant("(sa{sv})", (mode, {"flags": GLib.Variant(
+                          "i", os.O_EXCL | os.O_CLOEXEC | flags)})), "(h)")
+    return fds.get(reply.unpack()[0])
+
+
+def can_format(fstype):
+    """Whether udisks has the mkfs for fstype."""
+    try:
+        reply, _ = call(bus(), MANAGER, "org.freedesktop.UDisks2.Manager", "CanFormat",
+                        GLib.Variant("(s)", (fstype,)), "((bs))")
+        return reply.unpack()[0][0]
+    except GLib.Error:
+        return False
 
 
 def is_canceled(error):

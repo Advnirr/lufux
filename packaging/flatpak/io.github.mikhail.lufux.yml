@@ -29,6 +29,42 @@ modules:
         url: https://wimlib.net/downloads/wimlib-1.14.5.tar.gz
         sha256: 84221a3abd5b91228f15f8e6065c335a336237b5738197b75bf419eea561a194
 
+  # BIOS boot for MBR media: grub-mkimage, grub-bios-setup and the i386-pc modules
+  - name: grub
+    # GRUB brings its own flags for the boot code; the SDK's, or even a plain
+    # -O2 on top, give a core.img that crashes after "GRUB loading."
+    build-options:
+      cflags: ''
+      cflags-override: true
+      ldflags: ''
+      ldflags-override: true
+    # with --image-base the SDK's ld puts the ELF headers in front of
+    # kernel.img, and grub-mkimage refuses it
+    make-args:
+      - TARGET_IMG_BASE_LDOPT=-Wl,-Ttext
+    make-install-args:
+      - TARGET_IMG_BASE_LDOPT=-Wl,-Ttext
+    config-opts:
+      - --with-platform=pc
+      - --target=i386
+      - --disable-werror
+      - --disable-nls
+      - --disable-grub-mkfont
+      - --disable-grub-themes
+      - --disable-grub-mount
+      - --disable-device-mapper
+      - --disable-libzfs
+    cleanup:
+      - /etc
+      - /include
+      - /share/info
+      - /share/man
+      - /share/grub
+    sources:
+      - type: archive
+        url: https://ftp.gnu.org/gnu/grub/grub-2.14.tar.xz
+        sha256: bc8d3c73535b8838d8c8e2654d73edc4e6ae8c8acdb45d5df5dc9a1547446d43
+
   - name: lufux
     buildsystem: simple
     build-commands:

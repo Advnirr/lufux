@@ -3,9 +3,7 @@ import fcntl
 import mmap
 import os
 
-from gi.repository import GLib
-
-from udisks_logic import BLOCK, bus, call, resolve, unmount_all
+from udisks_logic import bus, open_device, resolve, unmount_all
 
 CHUNK = 4 << 20
 # what wipefs used to clear: the backup GPT of the drive's old layout
@@ -97,13 +95,9 @@ def write_image(iso, dev, status, progress, stopped, verify=False):
     status(T["unmount"])
     unmount_all(conn, path)
 
-    # O_EXCL: the kernel refuses if anything still holds the disk.
     # O_SYNC: otherwise the copy fills the page cache in a second and the
     # whole write happens during fsync, with the bar already at 100%
-    flags = os.O_EXCL | os.O_SYNC | os.O_CLOEXEC
-    reply, fds = call(conn, path, BLOCK, "OpenDevice",
-                       GLib.Variant("(sa{sv})", ("rw" if verify else "w", {"flags": GLib.Variant("i", flags)})), "(h)")
-    fd = fds.get(reply.unpack()[0])
+    fd = open_device(conn, path, "rw" if verify else "w", os.O_SYNC)
     try:
         status(T["copy"])
         if not copy_image(iso, fd, progress, stopped):

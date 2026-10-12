@@ -40,12 +40,12 @@ class InstallCommand(unittest.TestCase):
         self.assertEqual(cmd[0][-2:], ["dosfstools", "parted"])
 
     def test_one_command_can_need_two_packages(self):
-        # Debian and Fedora ship grub-install and the BIOS modules separately
-        self.assertEqual(self.cmd(["grub-install"], base="debian")[1][-2:],
-                         ["grub-pc-bin", "grub2-common"])
-        self.assertEqual(self.cmd(["grub-install"], base="fedora")[0][-2:],
+        # Debian and Fedora ship grub-mkimage and the BIOS modules separately
+        self.assertEqual(self.cmd(["grub-mkimage"], base="debian")[1][-2:],
+                         ["grub-common", "grub-pc-bin"])
+        self.assertEqual(self.cmd(["grub-mkimage"], base="fedora")[0][-2:],
                          ["grub2-pc-modules", "grub2-tools"])
-        self.assertEqual(self.cmd(["grub-install"])[0][-1], "grub")
+        self.assertEqual(self.cmd(["grub-mkimage"])[0][-1], "grub")
 
     def test_nothing_to_install_returns_nothing(self):
         self.assertIsNone(self.cmd([]))
@@ -61,7 +61,7 @@ class InstallCommand(unittest.TestCase):
     def test_the_command_is_argv_lists_never_a_shell_string(self):
         for base in ("arch", "debian", "fedora"):
             with self.subTest(base=base):
-                for step in self.cmd(["parted", "grub-install"], base=base):
+                for step in self.cmd(["parted", "grub-mkimage"], base=base):
                     self.assertIsInstance(step, list)
                     self.assertTrue(all(isinstance(arg, str) for arg in step))
                     self.assertEqual(step[0], "pkexec")
@@ -104,19 +104,24 @@ class BiosGrub(unittest.TestCase):
     def check(self, bios_boot, have_cmds=(), have_module=False):
         # every other tool is present, so only the GRUB checks decide
         with mock.patch.object(D, "_have_cmd", lambda name: name in have_cmds or not name.startswith("grub")), \
-             mock.patch.object(D.os.path, "isfile", lambda path: have_module and path == D.GRUB_BIOS_MODULE):
-            return D.check_dependencies(bios_boot=bios_boot)
+             mock.patch.object(D.os.path, "isfile", lambda path: have_module and path in D.GRUB_BIOS_MODULES):
+            return D.check_dependencies(bios_boot=bios_boot, udisks=True)
 
     def test_only_mbr_media_asks_for_grub(self):
         self.assertEqual(self.check(bios_boot=False), [])
-        self.assertEqual(self.check(bios_boot=True), ["grub-install"])
+        self.assertEqual(self.check(bios_boot=True), ["grub-mkimage"])
 
-    def test_fedoras_grub2_install_counts(self):
-        self.assertEqual(self.check(True, have_cmds=("grub2-install",), have_module=True), [])
+    def test_fedoras_grub2_mkimage_counts(self):
+        self.assertEqual(self.check(True, have_cmds=("grub2-mkimage",), have_module=True), [])
 
     def test_the_command_without_bios_modules_is_not_enough(self):
-        # a UEFI-only GRUB has grub-install and would fail after the wipe
-        self.assertEqual(self.check(True, have_cmds=("grub-install",)), ["grub-install"])
+        # a UEFI-only GRUB has grub-mkimage and would fail after the wipe
+        self.assertEqual(self.check(True, have_cmds=("grub-mkimage",)), ["grub-mkimage"])
+
+    def test_mbr_media_does_not_need_wimlib(self):
+        with mock.patch.object(D, "_have_cmd", lambda name: name == "grub-mkimage"), \
+             mock.patch.object(D.os.path, "isfile", return_value=True):
+            self.assertEqual(D.check_dependencies(bios_boot=True, udisks=True), [])
 
 
 if __name__ == "__main__":

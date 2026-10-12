@@ -66,5 +66,43 @@ class Wimlib(unittest.TestCase):
             self.run_fake("echo line; sleep 30", stopped=lambda: True)
 
 
+def fake_core(sectors):
+    """A core.img: no_rs_length set, an old blocklist left in the first sector."""
+    core = bytearray(sectors * 512)
+    core[W.NO_RS_LENGTH:W.NO_RS_LENGTH + 2] = (0x400).to_bytes(2, "little")
+    core[500:512] = (7).to_bytes(8, "little") + (3).to_bytes(2, "little") + (0x900).to_bytes(2, "little")
+    return bytes(core[:-100])
+
+
+class BiosBoot(unittest.TestCase):
+    def setUp(self):
+        self.boot_img = bytes(range(256)) * 2
+        self.sector0 = bytearray(512)
+        self.sector0[0x1b8:0x1fe] = b"\xab" * (0x1fe - 0x1b8)
+        self.boot, self.core = W.bios_boot_code(self.boot_img, fake_core(20), bytes(self.sector0))
+
+    def test_the_partition_table_survives(self):
+        self.assertEqual(self.boot[0x1b8:0x1fe], b"\xab" * (0x1fe - 0x1b8))
+        self.assertEqual(self.boot[0x1fe:], self.boot_img[0x1fe:])
+
+    def test_boot_img_points_at_sector_1(self):
+        self.assertEqual(int.from_bytes(self.boot[0x5c:0x64], "little"), 1)
+        self.assertEqual(self.boot[0x64], 0xFF)
+        self.assertEqual(self.boot[0x66:0x68], b"\x90\x90")
+
+    def test_the_blocklist_loads_the_rest_after_the_first_sector(self):
+        self.assertEqual(len(self.core), 20 * 512)
+        start = int.from_bytes(self.core[500:508], "little")
+        length = int.from_bytes(self.core[508:510], "little")
+        segment = int.from_bytes(self.core[510:512], "little")
+        self.assertEqual((start, length, segment), (2, 19, 0x820))
+        # and a terminator below it
+        self.assertEqual(self.core[488:500], bytes(12))
+
+    def test_a_core_too_big_for_the_gap_is_refused(self):
+        with self.assertRaises(OSError):
+            W.bios_boot_code(self.boot_img, fake_core(2048), bytes(512))
+
+
 if __name__ == "__main__":
     unittest.main()
