@@ -139,8 +139,10 @@ def write_image(iso, dev, status, progress, stopped):
     status(T["unmount"])
     _unmount_all(bus, path)
 
-    # O_EXCL: the kernel refuses if anything still holds the disk
-    flags = os.O_EXCL | os.O_CLOEXEC
+    # O_EXCL: the kernel refuses if anything still holds the disk.
+    # O_SYNC: otherwise the copy fills the page cache in a second and the
+    # whole write happens during fsync, with the bar already at 100%
+    flags = os.O_EXCL | os.O_SYNC | os.O_CLOEXEC
     reply, fds = _call(bus, path, "org.freedesktop.UDisks2.Block", "OpenDevice",
                        GLib.Variant("(sa{sv})", ("w", {"flags": GLib.Variant("i", flags)})), "(h)")
     fd = fds.get(reply.unpack()[0])
