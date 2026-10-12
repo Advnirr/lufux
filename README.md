@@ -27,6 +27,19 @@ A simple GUI tool for making bootable USB drives on Linux: ISOHybrid images, Win
 * **Linux / Isohybrid Support:** Uses direct bit-for-bit block copying via `dd` for guaranteed bootability of Linux distributions.
 * **Native:** GTK4/Adwaita interface.
 
+<details>
+<summary><b>Screenshots</b></summary>
+
+<img src="screenshots/drive.png" alt="Choosing a drive">
+
+<img src="screenshots/windows.png" alt="A Windows image">
+
+<img src="screenshots/togo.png" alt="Windows To Go, ready to write">
+
+<img src="screenshots/flashing.png" alt="Writing the drive">
+
+</details>
+
 ## 📦 Dependencies
 
 To run Lufux, you need the following system packages:

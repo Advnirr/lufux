@@ -27,6 +27,19 @@
 * **Linux / Isohybrid:** Записывает образ побайтно через `dd`, поэтому дистрибутивы Linux загружаются так же, как с оригинального образа.
 * **Нативный интерфейс:** GTK4/Adwaita.
 
+<details>
+<summary><b>Скриншоты</b></summary>
+
+<img src="screenshots/drive.png" alt="Выбор флешки">
+
+<img src="screenshots/windows.png" alt="Образ Windows">
+
+<img src="screenshots/togo.png" alt="Windows To Go перед записью">
+
+<img src="screenshots/flashing.png" alt="Запись">
+
+</details>
+
 ## 📦 Зависимости
 
 Для запуска Lufux нужны системные пакеты:
