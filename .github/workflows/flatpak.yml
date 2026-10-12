@@ -1,0 +1,62 @@
+name: Flatpak
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  KEY_ID: 06D2663940137DC974CB9D095950A9BDF6162207
+
+jobs:
+  repo:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      # flatpak-builder needs user namespaces
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v7
+      - name: Fetch the repo from gh-pages
+        run: git clone --depth 1 --branch gh-pages "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$RUNNER_TEMP/pages"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Import the signing key
+        run: printf '%s\n' "$FLATPAK_GPG_KEY" | gpg --batch --import
+        env:
+          FLATPAK_GPG_KEY: ${{ secrets.FLATPAK_GPG_KEY }}
+      - name: Build into the repo
+        run: |
+          version=$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' main.py)
+          mkdir dist
+          TMPDIR="$RUNNER_TEMP" sh tools/publish-flatpak.sh "$RUNNER_TEMP/pages" "$KEY_ID" "dist/lufux-$version.flatpak"
+      - name: Publish gh-pages
+        # one commit, old builds stay only in the repo itself
+        run: |
+          cd "$RUNNER_TEMP/pages"
+          git checkout --orphan next
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "Flatpak repo for ${GITHUB_REF_NAME}"
+          git push -f origin next:gh-pages
+      - uses: actions/upload-artifact@v7
+        with:
+          name: flatpak
+          path: dist/*.flatpak
+
+  attach:
+    if: github.event_name == 'release'
+    needs: repo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: flatpak
+          path: dist
+      - run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}

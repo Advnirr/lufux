@@ -82,6 +82,13 @@ sudo dnf install ./lufux-*.noarch.rpm
 
 Пакеты можно собрать и самому через `tools/build-packages.sh`. Для этого нужны `dpkg-deb` и `rpmbuild`, готовые файлы появятся в `dist/`.
 
+### Flatpak (Любой дистрибутив)
+
+```bash
+flatpak install --user https://advnirr.github.io/lufux/io.github.Advnirr.Lufux.flatpakref
+```
+Обновления приходят через `flatpak update`. В системе всё равно нужны `udisks2`, `dosfstools` и `ntfs-3g`. Flatpak открывает образы только из домашней папки.
+
 ### Ручной запуск (Любой дистрибутив)
 Lufux можно запустить прямо из исходников, без установки:
 ```bash
