@@ -227,6 +227,7 @@ from windows_logic import get_windows_script
 from windows_togo_logic import get_windows_togo_script
 from universal_logic import write_image, list_drives, device_size, is_canceled
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
+from iso_logic import volume_label, identify, windows_name, badge_svg
 
 # here I am
 APP_VERSION = "1.3.9"
@@ -567,12 +568,19 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def setup_page_iso(self):
         page = Adw.StatusPage(title=T["step_iso"], icon_name="media-optical-symbolic")
+        self.iso_page = page
+        self.iso_system = ""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15, halign=Gtk.Align.CENTER)
         page.set_child(box)
 
         self.iso_btn = Gtk.Button(label=T["select_iso"])
         self.iso_btn.connect("clicked", self.on_select_iso)
         box.append(self.iso_btn)
+
+        self.iso_name = Gtk.Label()
+        self.iso_name.add_css_class("title-3")
+        self.iso_name.set_visible(False)
+        box.append(self.iso_name)
 
         self.iso_label = Gtk.Label(label=T["iso_not_selected"])
         self.iso_label.add_css_class("dim-label")
@@ -622,6 +630,28 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.scheme_label.set_visible(is_windows and not wtg)
         self.scheme_dropdown.set_visible(is_windows and not wtg)
         self.update_edition_visible()
+        self.update_iso_badge()
+
+    def update_iso_badge(self):
+        """Name the system in the chosen ISO and show its logo or a letter badge."""
+        if not self.iso_path:
+            return
+        windows = self.os_dropdown.get_selected() == 0
+        name, icon, color = identify(volume_label(self.iso_path),
+                                     os.path.basename(self.iso_path), windows)
+        if windows:
+            name = windows_name(self.editions)
+        self.iso_system = name
+        self.iso_name.set_label(name)
+        self.iso_name.set_visible(True)
+
+        logo = f"distributor-logo-{icon}"
+        if icon and Gtk.IconTheme.get_for_display(self.get_display()).has_icon(logo):
+            self.iso_page.set_paintable(None)
+            self.iso_page.set_icon_name(logo)
+        else:
+            self.iso_page.set_paintable(
+                Gdk.Texture.new_from_bytes(GLib.Bytes.new(badge_svg(name, color))))
 
     def on_wtg_toggled(self, check):
         # Windows To Go is always GPT/UEFI, so hide the scheme picker
@@ -665,6 +695,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.edition_dropdown.set_model(Gtk.StringList.new(names))
         self.edition_dropdown.set_selected(0)
         self.update_edition_visible()
+        self.update_iso_badge()
 
     def setup_page_summary(self):
         page = Adw.StatusPage(title=T["step_summary"], icon_name="emblem-system-symbolic")
@@ -773,6 +804,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         
         os_idx = self.os_dropdown.get_selected()
         os_text = T["os_win"] if os_idx == 0 else T["os_lin"] if os_idx == 1 else T["os_other"]
+        if self.iso_system and self.iso_system != os_text:
+            os_text = f"{self.iso_system} · {os_text}"
         self.sum_os.set_subtitle(os_text)
         
         # a single-edition image never shows the picker, so the summary is the
@@ -1299,6 +1332,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.analyze_iso()
         self.editions = []
         self.update_edition_visible()
+        self.update_iso_badge()
         threading.Thread(target=self.read_editions, args=(path,), daemon=True).start()
         self.update_ui_state()
 
