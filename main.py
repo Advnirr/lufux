@@ -469,14 +469,14 @@ class LufuxWindow(Adw.ApplicationWindow):
         super().__init__(**kwargs)
         self.set_title(T["title"])
         self.set_default_size(600, 520)
-        
+
         self.iso_path = None
         self.selected_dev = None
         # [(image index, name)] read out of the chosen ISO, empty until then
         self.editions = []
         self.pages = ["page_drive", "page_iso", "page_summary", "page_flash"]
         self.current_step = 0
-        
+
         self.is_flashing = False
         self.proc = None
         # background jobs other than the flash that report back to this window
@@ -541,7 +541,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.dots_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, halign=Gtk.Align.CENTER, hexpand=True)
         self.dots_box.set_valign(Gtk.Align.CENTER)
         self.dots = []
-        for i in range(3):
+        for _ in range(3):
             dot = Gtk.Box()
             dot.set_size_request(10, 10)
             dot.set_valign(Gtk.Align.CENTER)
@@ -622,9 +622,9 @@ class LufuxWindow(Adw.ApplicationWindow):
         box.append(self.os_dropdown)
 
         self.scheme_label = Gtk.Label(label=T["partition_scheme"])
-        self.scheme_label.set_visible(False) 
+        self.scheme_label.set_visible(False)
         box.append(self.scheme_label)
-        
+
         self.scheme_dropdown = Gtk.DropDown.new_from_strings([T["scheme_gpt"], T["scheme_mbr"]])
         self.scheme_dropdown.set_visible(False)
         self.scheme_dropdown.set_size_request(280, -1)
@@ -789,7 +789,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         if self.current_step == 2:
             self.request_start()
             return
-            
+
         if self.current_step < 2:
             self.current_step += 1
             self.update_ui_state()
@@ -801,25 +801,25 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def update_ui_state(self):
         self.view_stack.set_visible_child_name(self.pages[self.current_step])
-        
+
         for i, dot in enumerate(self.dots):
             if i == self.current_step:
                 dot.add_css_class("active")
             else:
                 dot.remove_css_class("active")
-        
+
         self.btn_back.set_sensitive(self.current_step > 0)
-        
+
         if self.current_step == 0:
             self.btn_next.set_label(T["btn_next"])
             sel = self.drive_dropdown.get_selected_item()
             is_valid_drive = sel is not None and is_drive_row(sel.get_string())
             self.btn_next.set_sensitive(is_valid_drive)
-            
+
         elif self.current_step == 1:
             self.btn_next.set_label(T["btn_next"])
             self.btn_next.set_sensitive(self.iso_path is not None)
-            
+
         elif self.current_step == 2:
             self.btn_next.set_label(T["btn_start"])
             self.btn_next.set_sensitive(True)
@@ -828,16 +828,16 @@ class LufuxWindow(Adw.ApplicationWindow):
     def update_summary_data(self):
         sel_drive = self.drive_dropdown.get_selected_item().get_string()
         self.selected_dev = f"/dev/{sel_drive.split()[0]}"
-        
+
         self.sum_drive.set_subtitle(sel_drive)
         self.sum_iso.set_subtitle(os.path.basename(self.iso_path))
-        
+
         os_idx = self.os_dropdown.get_selected()
         os_text = T["os_win"] if os_idx == 0 else T["os_lin"] if os_idx == 1 else T["os_other"]
         if self.iso_system and self.iso_system != os_text:
             os_text = f"{self.iso_system} · {os_text}"
         self.sum_os.set_subtitle(os_text)
-        
+
         # a single-edition image never shows the picker, so the summary is the
         # only place that says which Windows is about to be written
         wtg = os_idx == 0 and self.wtg_check.get_active()
@@ -952,7 +952,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         base, distro_name = get_distro_info()
         deps_str = ", ".join(missing)
         self.install_cmd = get_install_cmd(missing)
-        
+
         if not self.install_cmd:
             dialog = Adw.AlertDialog(
                 heading=T["dep_missing_title"],
@@ -1002,7 +1002,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.jobs -= 1
         self.btn_next.set_sensitive(True)
         self.show_warn1_dialog()
-        
+
     def show_deps_error(self, err_text):
         self.jobs -= 1
         self.btn_next.set_sensitive(True)
@@ -1238,10 +1238,10 @@ class LufuxWindow(Adw.ApplicationWindow):
             website=WEB_URL,
         )
         dialog.present(self)
-              
+
     def show_settings(self, action=None, param=None):
         pref_dialog = Adw.PreferencesDialog(title=T["settings"])
-        
+
         page = Adw.PreferencesPage()
         group = Adw.PreferencesGroup()
         page.add(group)
@@ -1251,7 +1251,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         theme_row = Adw.ComboRow(title=T.get("theme", "Тема"))
         theme_model = Gtk.StringList.new([T.get("theme_sys", "Системная"), T.get("theme_light", "Светлая"), T.get("theme_dark", "Тёмная")])
         theme_row.set_model(theme_model)
-        
+
         theme_row.set_selected(APP_CONFIG.get("theme", 0))
         theme_row.connect("notify::selected", self.on_theme_changed)
         group.add(theme_row)
@@ -1260,7 +1260,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         lang_row = Adw.ComboRow(title=T.get("language", "Язык"))
         lang_model = Gtk.StringList.new(["English", "Русский"])
         lang_row.set_model(lang_model)
-        
+
         # the saved choice can be ahead of LANG when it changed mid-flash
         current_lang = APP_CONFIG.get("lang") or os.environ.get('LANG', '')
         lang_row.set_selected(1 if current_lang.startswith('ru') else 0)
@@ -1278,7 +1278,7 @@ class LufuxWindow(Adw.ApplicationWindow):
     def on_lang_changed(self, combo, param):
         idx = combo.get_selected()
         new_lang = 'ru_RU.UTF-8' if idx == 1 else 'en_US.UTF-8'
-        
+
         if APP_CONFIG.get("lang") != new_lang:
             APP_CONFIG["lang"] = new_lang
             save_config(APP_CONFIG)
@@ -1653,7 +1653,7 @@ class LufuxWindow(Adw.ApplicationWindow):
             name=self.iso_system or os.path.basename(self.iso_path),
             dev=self.selected_dev.removeprefix("/dev/")))
         self.flash_progress.set_fraction(1.0)
-        
+
         self.flash_progress.set_visible(False)
         self.btn_done.set_visible(True)
 
