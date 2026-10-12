@@ -198,7 +198,7 @@ from deps_logic import check_dependencies, get_distro_info, get_install_cmd
 from iso_logic import volume_label, identify, windows_name
 
 # here I am
-APP_VERSION = "1.3.9"
+APP_VERSION = "1.4.0"
 GITHUB_URL = "https://github.com/Advnirr/lufux"
 WEB_URL = "https://advnirr.org/"
 

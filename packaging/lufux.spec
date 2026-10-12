@@ -1,5 +1,5 @@
 Name:           lufux
-Version:        1.3.9
+Version:        1.4.0
 Release:        1%{?dist}
 Summary:        Create bootable USB drives, including Windows To Go
 License:        GPL-3.0-or-later

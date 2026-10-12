@@ -64,6 +64,11 @@
   </supports>
 
   <releases>
+    <release version="1.4.0" date="2026-10-12">
+      <description>
+        <p>All disk work goes through UDisks2, no root scripts. Windows To Go works the same way. Flatpak build. Linux images are checked after writing.</p>
+      </description>
+    </release>
     <release version="1.3.9" date="2026-10-01">
       <description>
         <p>.deb and .rpm packages. The launcher runs python3.</p>
