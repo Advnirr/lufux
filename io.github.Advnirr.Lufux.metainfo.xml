@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.Advnirr.Lufux</id>
+  <name>Lufux</name>
+  <summary>Create bootable USB drives</summary>
+  <summary xml:lang="ru">Создание загрузочных флешек</summary>
+  <developer id="io.github.advnirr">
+    <name>Mikhail Mlhcnn</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <description>
+    <p>
+      Lufux writes bootable USB drives from ISO images: Linux images, Windows
+      installers and Windows To Go.
+    </p>
+    <ul>
+      <li>Linux and other hybrid images are written as is and checked after writing</li>
+      <li>Windows installers for UEFI (GPT, FAT32) or Legacy BIOS (MBR, NTFS); install.wim over 4 GB is split</li>
+      <li>Windows To Go: Windows installed on the drive itself, with the edition you choose</li>
+      <li>Drive speed check before Windows To Go</li>
+    </ul>
+    <p>
+      Disks are written through UDisks2. The system needs udisks2, dosfstools and ntfs-3g.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.Advnirr.Lufux.desktop</launchable>
+
+  <url type="homepage">https://github.com/Advnirr/lufux</url>
+  <url type="bugtracker">https://github.com/Advnirr/lufux/issues</url>
+  <url type="vcs-browser">https://github.com/Advnirr/lufux</url>
+
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/Advnirr/lufux/main/screenshots/drive.png</image>
+      <caption>Choosing a drive</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Advnirr/lufux/main/screenshots/windows.png</image>
+      <caption>A Windows image</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Advnirr/lufux/main/screenshots/togo.png</image>
+      <caption>Windows To Go, ready to write</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Advnirr/lufux/main/screenshots/flashing.png</image>
+      <caption>Writing the drive</caption>
+    </screenshot>
+  </screenshots>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#d1d1d1</color>
+    <color type="primary" scheme_preference="dark">#303030</color>
+  </branding>
+
+  <content_rating type="oars-1.1"/>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <releases>
+    <release version="1.3.9" date="2026-10-01">
+      <description>
+        <p>.deb and .rpm packages. The launcher runs python3.</p>
+      </description>
+    </release>
+    <release version="1.3.8" date="2026-09-14">
+      <description>
+        <p>MBR media boots on Legacy BIOS through GRUB. The chosen drive stays selected when drives are plugged in or pulled.</p>
+      </description>
+    </release>
+    <release version="1.3.7" date="2026-09-07">
+      <description>
+        <p>Checks that the image fits before writing. Smaller ESP for Windows To Go.</p>
+      </description>
+    </release>
+    <release version="1.3.6" date="2026-09-06">
+      <description>
+        <p>Windows edition picker for Windows To Go.</p>
+      </description>
+    </release>
+  </releases>
+</component>

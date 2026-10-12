@@ -35,5 +35,6 @@ sh packaging/install.sh %{buildroot}
 %license LICENSE
 %doc README.md
 %{_datadir}/lufux/
-%{_datadir}/applications/io.github.mikhail.lufux.desktop
-%{_datadir}/icons/hicolor/scalable/apps/lufux.svg
+%{_datadir}/applications/io.github.Advnirr.Lufux.desktop
+%{_datadir}/metainfo/io.github.Advnirr.Lufux.metainfo.xml
+%{_datadir}/icons/hicolor/scalable/apps/io.github.Advnirr.Lufux.svg

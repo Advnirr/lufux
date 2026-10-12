@@ -8,8 +8,8 @@ license=('GPL3')
 depends=('python-gobject' 'gtk4' 'libadwaita' 'wimlib' 'dosfstools' 'ntfs-3g' 'udisks2')
 optdepends=('grub: boot MBR/NTFS Windows media on Legacy BIOS')
 makedepends=('git')
-source=("main.py" "windows_logic.py" "windows_togo_logic.py" "bcd_logic.py" "speed_logic.py" "universal_logic.py" "deps_logic.py" "iso_logic.py" "udisks_logic.py" "io.github.mikhail.lufux.desktop" "lufux.svg")
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+source=("main.py" "windows_logic.py" "windows_togo_logic.py" "bcd_logic.py" "speed_logic.py" "universal_logic.py" "deps_logic.py" "iso_logic.py" "udisks_logic.py" "io.github.Advnirr.Lufux.desktop" "io.github.Advnirr.Lufux.metainfo.xml" "lufux.svg")
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
     install -d "${pkgdir}/usr/share/lufux"
@@ -24,6 +24,7 @@ package() {
     install -Dm644 "${srcdir}/iso_logic.py" "${pkgdir}/usr/share/lufux/iso_logic.py"
     install -Dm644 "${srcdir}/udisks_logic.py" "${pkgdir}/usr/share/lufux/udisks_logic.py"
 
-    install -Dm644 "${srcdir}/io.github.mikhail.lufux.desktop" "${pkgdir}/usr/share/applications/io.github.mikhail.lufux.desktop"
-    install -Dm644 "${srcdir}/lufux.svg" "${pkgdir}/usr/share/icons/hicolor/scalable/apps/lufux.svg"
+    install -Dm644 "${srcdir}/io.github.Advnirr.Lufux.desktop" "${pkgdir}/usr/share/applications/io.github.Advnirr.Lufux.desktop"
+    install -Dm644 "${srcdir}/io.github.Advnirr.Lufux.metainfo.xml" "${pkgdir}/usr/share/metainfo/io.github.Advnirr.Lufux.metainfo.xml"
+    install -Dm644 "${srcdir}/lufux.svg" "${pkgdir}/usr/share/icons/hicolor/scalable/apps/io.github.Advnirr.Lufux.svg"
 }

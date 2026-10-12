@@ -9,6 +9,7 @@ install -Dm755 "$src/main.py" "$share/lufux/main.py"
 for module in "$src"/*_logic.py; do
     install -Dm644 "$module" "$share/lufux/${module##*/}"
 done
-install -Dm644 "$src/io.github.mikhail.lufux.desktop" \
-    "$share/applications/io.github.mikhail.lufux.desktop"
-install -Dm644 "$src/lufux.svg" "$share/icons/hicolor/scalable/apps/lufux.svg"
+install -Dm644 "$src/io.github.Advnirr.Lufux.desktop" \
+    "$share/applications/io.github.Advnirr.Lufux.desktop"
+install -Dm644 "$src/io.github.Advnirr.Lufux.metainfo.xml" "$share/metainfo/io.github.Advnirr.Lufux.metainfo.xml"
+install -Dm644 "$src/lufux.svg" "$share/icons/hicolor/scalable/apps/io.github.Advnirr.Lufux.svg"

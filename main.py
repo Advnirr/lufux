@@ -1377,7 +1377,7 @@ class LufuxWindow(Adw.ApplicationWindow):
             return
         note = Gio.Notification.new(title)
         # the Flatpak exports the icon under the app ID, packages as lufux
-        note.set_icon(Gio.ThemedIcon.new_from_names(["io.github.mikhail.lufux", "lufux"]))
+        note.set_icon(Gio.ThemedIcon.new_from_names(["io.github.Advnirr.Lufux"]))
         if body:
             note.set_body(body)
         self.get_application().send_notification("flash", note)
@@ -1413,7 +1413,7 @@ class LufuxWindow(Adw.ApplicationWindow):
 
 class LufuxApp(Adw.Application):
     def __init__(self):
-        super().__init__(application_id="io.github.mikhail.lufux")
+        super().__init__(application_id="io.github.Advnirr.Lufux")
         self.connect("activate", self.on_activate)
 
     def on_activate(self, app):

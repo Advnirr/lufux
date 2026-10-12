@@ -25,7 +25,7 @@ build_rpm() {
     # named like GitHub's tarball of the tag, which Source0 points to
     (cd "$root" && tar -czf "$top/SOURCES/v$version-stable.tar.gz" \
         --transform "s|^|lufux-$version-stable/|" \
-        main.py *_logic.py io.github.mikhail.lufux.desktop lufux.svg \
+        main.py *_logic.py io.github.Advnirr.Lufux.desktop io.github.Advnirr.Lufux.metainfo.xml lufux.svg \
         LICENSE README.md packaging/install.sh)
     rpmbuild -bb --define "_topdir $top" "$root/packaging/lufux.spec"
     cp "$top"/RPMS/noarch/*.rpm "$dist/"
