@@ -124,5 +124,24 @@ class Listing(unittest.TestCase):
         self.assertEqual(self.listed(disk("/dev/sdd", size=0, removable=True)), [])
 
 
+class Identity(unittest.TestCase):
+    def identity(self, objects, dev="/dev/sdb"):
+        with mock.patch.object(D, "objects", return_value=objects), \
+             mock.patch.object(D, "bus"), \
+             mock.patch.object(D, "resolve", return_value="/block/" + dev):
+            return D.drive_identity(dev)
+
+    def test_another_disk_under_the_same_name_differs(self):
+        first = disk("/dev/sdb")
+        other = disk("/dev/sdb", size=16 << 30)
+        self.assertNotEqual(self.identity(first), self.identity(other))
+
+    def test_the_same_disk_is_the_same(self):
+        self.assertEqual(self.identity(disk("/dev/sdb")), self.identity(disk("/dev/sdb")))
+
+    def test_an_unknown_name_is_none(self):
+        self.assertIsNone(self.identity({}))
+
+
 if __name__ == "__main__":
     unittest.main()

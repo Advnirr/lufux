@@ -203,7 +203,8 @@ from gi.repository import Gtk, Adw, GLib, Gio, Gdk
 from windows_logic import write_windows
 from windows_togo_logic import write_windows_togo
 from universal_logic import write_image
-from udisks_logic import PortalPath, list_drives, device_size, is_canceled, mounted_iso, can_format
+from udisks_logic import (PortalPath, can_format, device_size, drive_identity, is_canceled,
+                          list_drives, mounted_iso)
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
 from iso_logic import volume_label, identify, windows_name
 
@@ -317,6 +318,7 @@ def get_locale_dict():
             ),
             "cap_log": "Нужно {needed}, на накопителе {size}",
             "err_code": "Код:",
+            "drive_changed": "Накопитель {dev} сменился после выбора. Выберите его заново.",
             "flash_failed": "Запись не завершилась. Подробности — в журнале.",
             "scheme_dd": "Isohybrid (побайтовая копия через dd)"
         }
@@ -421,6 +423,7 @@ def get_locale_dict():
         ),
         "cap_log": "Needs {needed}, the drive holds {size}",
         "err_code": "Code:",
+        "drive_changed": "{dev} is another drive than the one chosen. Choose it again.",
         "flash_failed": "Flashing did not finish. The log has the details.",
         "scheme_dd": "Isohybrid (dd block copy)"
     }
@@ -435,6 +438,7 @@ class LufuxWindow(Adw.ApplicationWindow):
 
         self.iso_path = None
         self.selected_dev = None
+        self.drive_ident = None
         # [(image index, name)] read out of the chosen ISO, empty until then
         self.editions = []
         self.pages = ["page_drive", "page_iso", "page_summary", "page_flash"]
@@ -749,9 +753,17 @@ class LufuxWindow(Adw.ApplicationWindow):
             self.request_start()
             return
 
+        if self.current_step == 0:
+            self.remember_drive()
         if self.current_step < 2:
             self.current_step += 1
             self.update_ui_state()
+
+    def remember_drive(self):
+        # the list stops refreshing past step 1, so the chosen disk is pinned
+        # here and checked again right before writing
+        sel = self.drive_dropdown.get_selected_item()
+        self.drive_ident = drive_identity(f"/dev/{sel.get_string().split()[0]}")
 
     def go_back(self, btn):
         if self.current_step > 0:
@@ -1216,6 +1228,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.set_iso(path)
         sel = self.drive_dropdown.get_selected_item()
         if self.current_step == 0 and sel is not None and is_drive_row(sel.get_string()):
+            self.remember_drive()
             self.current_step = 1
             self.update_ui_state()
         return True
@@ -1297,6 +1310,12 @@ class LufuxWindow(Adw.ApplicationWindow):
     def udisks_worker(self, write, iso, dev, *args):
         """Run a writer that goes through udisks, in this process."""
         started = [time.monotonic()]
+        if drive_identity(dev) != self.drive_ident:
+            self.is_flashing = False
+            msg = T["drive_changed"].format(dev=dev)
+            GLib.idle_add(self.append_log, f"{T['err_crit']} {msg}")
+            GLib.idle_add(self.show_flash_failed, T["err_crit"], msg)
+            return
 
         def status(msg):
             started[0] = time.monotonic()

@@ -15,6 +15,7 @@ MANAGER = "/org/freedesktop/UDisks2/Manager"
 BLOCK = "org.freedesktop.UDisks2.Block"
 FILESYSTEM = "org.freedesktop.UDisks2.Filesystem"
 PARTITION = "org.freedesktop.UDisks2.Partition"
+DRIVE = "org.freedesktop.UDisks2.Drive"
 # major 8 only, as lsblk -I 8 did: no NVMe, no SD cards, see issue #2
 DEVICE_RE = re.compile(r"^/dev/sd[a-z]+$")
 # Microsoft basic data, what parted's msftdata flag set
@@ -52,7 +53,7 @@ def list_drives():
         block = ifaces.get(BLOCK)
         if not block or PARTITION in ifaces:
             continue
-        drive = objs.get(block["Drive"], {}).get("org.freedesktop.UDisks2.Drive")
+        drive = objs.get(block["Drive"], {}).get(DRIVE)
         dev = _bytes(block["Device"])
         if not drive or not DEVICE_RE.match(dev) or not block["Size"]:
             continue
@@ -71,6 +72,21 @@ def resolve(conn, dev):
     if not paths:
         raise LookupError(f"udisks does not know {dev}")
     return paths[0]
+
+
+def drive_identity(dev):
+    """What tells this disk from one that takes its name later, None if unknown.
+
+    A replug can hand /dev/sdX to another disk between choosing and writing.
+    """
+    try:
+        conn = bus()
+        objs = objects(conn)
+        block = objs[resolve(conn, dev)][BLOCK]
+        drive = objs.get(block["Drive"], {}).get(DRIVE, {})
+        return (block["Drive"], drive.get("Serial", ""), drive.get("WWN", ""), block["Size"])
+    except (GLib.Error, LookupError):
+        return None
 
 
 def device_size(dev):
