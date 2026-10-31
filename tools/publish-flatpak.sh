@@ -15,6 +15,12 @@ mkdir -p "${TMPDIR:-$HOME/.cache}"
 work=$(mktemp -d -p "${TMPDIR:-$HOME/.cache}")
 trap 'rm -rf "$work"' EXIT
 
+# gh-pages is git, which keeps no empty directories; ostree needs these
+if [ -f "$pages/repo/config" ]; then
+    mkdir -p "$pages/repo/refs/remotes" "$pages/repo/refs/mirrors" \
+        "$pages/repo/tmp" "$pages/repo/state" "$pages/repo/extensions"
+fi
+
 gpg_home=${GNUPGHOME:+--gpg-homedir=$GNUPGHOME}
 # shellcheck disable=SC2086
 ${FLATPAK_BUILDER:-flatpak-builder} --force-clean --disable-rofiles-fuse \
