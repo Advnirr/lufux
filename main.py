@@ -194,7 +194,7 @@ from universal_logic import write_image
 from udisks_logic import (PortalPath, can_format, device_size, drive_identity, is_canceled,
                           list_drives, mounted_iso)
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
-from iso_logic import volume_label, identify, windows_name
+from iso_logic import identify, iso_kind, volume_label, windows_name
 
 APP_VERSION = "1.4.1"
 GITHUB_URL = "https://github.com/Advnirr/lufux"
@@ -421,6 +421,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.set_default_size(600, 520)
 
         self.iso_path = None
+        # the ISO being scanned for what system it holds
+        self.analyzing = None
         # the ISO whose editions were read or are being read
         self.editions_read = None
         self.selected_dev = None
@@ -787,7 +789,8 @@ class LufuxWindow(Adw.ApplicationWindow):
 
         elif self.current_step == 1:
             self.btn_next.set_label(T["btn_next"])
-            self.btn_next.set_sensitive(self.iso_path is not None)
+            # the OS guess decides the summary, wait for it
+            self.btn_next.set_sensitive(self.iso_path is not None and self.analyzing is None)
 
         elif self.current_step == 2:
             self.btn_next.set_label(T["btn_start"])
@@ -1238,67 +1241,28 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.editions = []
         self.editions_read = None
         self.iso_label.set_label(os.path.basename(path))
-        self.analyze_iso()
         self.update_edition_visible()
-        self.update_iso_badge()
-        # only Windows has editions; a loop mount of anything else is wasted time
-        if self.os_dropdown.get_selected() == 0:
-            self.start_reading_editions()
+        # reading up to 64 MiB, slow through the portal: not on this thread
+        self.analyzing = path
+        self.jobs += 1
+        threading.Thread(target=self.analyze_worker, args=(path,), daemon=True).start()
         self.update_ui_state()
 
-    # A current Windows ISO keeps its real tree in a UDF filesystem and leaves
-    # only a README on the ISO9660 side, and libarchive cannot read UDF at all -
-    # so listing one with bsdtar returned two entries and every Windows image
-    # was detected as "Other". Match the raw image instead. ISO9660 records hold
-    # names as plain bytes and UDF holds them as UTF-16BE, and UDF stores each
-    # path component in its own record, so the markers are single components.
-    ISO_WINDOWS = ('install.wim', 'install.esd', 'boot.wim', 'bootmgr.efi')
-    ISO_LINUX = ('isolinux', 'casper', 'vmlinuz', 'initrd.img', 'grub.cfg')
-    # Names live in the volume metadata, which sits near the front of the image
-    # (630 KB in on the ISO this was built against). A match usually lands in
-    # the first chunk; this bound is what an unrecognised image costs.
-    ISO_SCAN = 64 << 20
-    ISO_CHUNK = 4 << 20
+    def analyze_worker(self, path):
+        GLib.idle_add(self.apply_kind, path, iso_kind(path))
 
-    @staticmethod
-    def _iso_views(buf):
-        """The chunk as lowercased text, in each encoding a name can be in.
-
-        UTF-16BE is decoded at both alignments: nothing promises the records
-        begin on an even offset within the chunk.
-        """
-        yield buf.decode('latin-1').lower()
-        for start in (0, 1):
-            body = buf[start:]
-            yield body[:len(body) & ~1].decode('utf-16-be', 'ignore').lower()
-
-    def _iso_has(self, markers):
-        try:
-            with open(self.iso_path, 'rb') as f:
-                carry = b''
-                read = 0
-                while read < self.ISO_SCAN:
-                    buf = f.read(self.ISO_CHUNK)
-                    if not buf:
-                        break
-                    read += len(buf)
-                    window = carry + buf
-                    for text in self._iso_views(window):
-                        if any(m in text for m in markers):
-                            return True
-                    # a name can straddle two chunks
-                    carry = window[-64:]
-        except OSError:
-            return False
-        return False
-
-    def analyze_iso(self):
-        if self._iso_has(self.ISO_WINDOWS):
-            self.os_dropdown.set_selected(0)
-        elif self._iso_has(self.ISO_LINUX):
-            self.os_dropdown.set_selected(1)
-        else:
-            self.os_dropdown.set_selected(2)
+    def apply_kind(self, path, kind):
+        self.jobs -= 1
+        # a second ISO can be chosen while the first one is still scanned
+        if path != self.iso_path:
+            return
+        self.analyzing = None
+        self.os_dropdown.set_selected(kind)
+        # only Windows has editions; a loop mount of anything else is wasted time
+        if kind == 0:
+            self.start_reading_editions()
+        self.update_iso_badge()
+        self.update_ui_state()
 
     def append_log(self, msg):
         end_iter = self.console_buffer.get_end_iter()

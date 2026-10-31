@@ -48,5 +48,29 @@ class Identify(unittest.TestCase):
         self.assertEqual(I.windows_name([]), "Windows")
 
 
+class Kind(unittest.TestCase):
+    def kind(self, data):
+        with tempfile.NamedTemporaryFile() as f:
+            f.write(data)
+            f.flush()
+            return I.iso_kind(f.name)
+
+    def test_windows_in_utf16_as_udf_stores_it(self):
+        self.assertEqual(self.kind(bytes(1001) + "install.wim".encode("utf-16-be")), 0)
+
+    def test_windows_wins_over_linux(self):
+        self.assertEqual(self.kind(b"grub.cfg" + bytes(100) + b"BOOT.WIM"), 0)
+
+    def test_linux(self):
+        self.assertEqual(self.kind(b"..casper.."), 1)
+
+    def test_a_name_across_two_chunks(self):
+        self.assertEqual(self.kind(bytes(I.ISO_CHUNK - 4) + b"install.esd"), 0)
+
+    def test_nothing_known_and_a_missing_file(self):
+        self.assertEqual(self.kind(b"hello"), 2)
+        self.assertEqual(I.iso_kind("/nonexistent.iso"), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
