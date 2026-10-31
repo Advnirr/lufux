@@ -9,15 +9,15 @@ depends=('python-gobject' 'gtk4' 'libadwaita' 'wimlib' 'dosfstools' 'ntfs-3g' 'u
 optdepends=('grub: boot MBR/NTFS Windows media on Legacy BIOS')
 makedepends=('git')
 source=("main.py" "windows_logic.py" "windows_togo_logic.py" "bcd_logic.py" "speed_logic.py" "universal_logic.py" "deps_logic.py" "iso_logic.py" "udisks_logic.py" "io.github.Advnirr.Lufux.desktop" "io.github.Advnirr.Lufux.metainfo.xml" "lufux.svg")
-sha256sums=('9080fd708355ab400c4ccac9c838cecca8657ff7f30c2ac8b9c019f05b2a5b2b'
-            '54e7a4c483aaf9b1102e65080883e44a4ddb38d83ccbb22934b8e0e3936be0b9'
-            '6b37c6e0633577dbb9bc044e74d54827f096b6f9b8f7f682fd7470b2d9eb011c'
+sha256sums=('d1563e990ce6947840760596e565e05fca7f11c90ce32d2fd4b0651d42781109'
+            '7be71fc05e34f5524500f5cd9ca41425c38c14c070f7d68450b93a9fbf26c69c'
+            'c9057fa67e12cad0fab8a15ef783e71decb6959293b1bed8e7555f87cfa20bc5'
             '3fcc097c0baa6c786b5903b64789e1027a74efa4da4f78c414dc414694945c16'
-            '9a34b9b3fbe9211b3c28ce862885a2a085f6b1e5b897b85c881989f80b37d69b'
+            'eb9c42cb5474e8cbbd0ceb49c3ca786b0328ee99c2892f40c30a28842c56623b'
             '5ede5b95a37da597fd20bca7166c4c0b2dc50542cb857d29b0c2968cea6d6d33'
             '9631a831a55fb15678bf41df26a841a22c410cbf108c6ab8bf918276461a753b'
             '72806e5c7469f0e391a0bbda45de93b07682f47895e150bcde9ab8fa1b3936f0'
-            '77b655a331f28f68128fbd123657c4e58f3fb8cc2a1c310030a6b90c8d73ce52'
+            '760f248ab79615af3d296003df121a26bdd91e55ef9a83a2db062d57333841b0'
             '34bf2767d1e54db44d2e76bd13459fb70f744ed03bd4a0224af12f12f5aa1281'
             'c96431dddcacbe85108ea5e86ab46ed06f46f2fe3c4cb546816fcb465207580c'
             '706e7d7c0ea396617b8cb9f15890cb616ceafab98237d7296c5b3c6aaba3fb2e')
