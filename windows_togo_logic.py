@@ -13,7 +13,7 @@ from bcd_logic import build_bcd, gpt_guids
 from speed_logic import measure_fd
 from udisks_logic import (BASIC_DATA, BLOCK, FILESYSTEM, NO_OPTIONS, PARTITION, bus, call, mount,
                           mounted_iso, objects, open_device, resolve, unmount, unmount_all)
-from windows_logic import WIM_NAMES, Stopped
+from windows_logic import SYNC_EVERY, WIM_NAMES, Stopped
 
 def get_locale_dict():
     lang = os.environ.get('LANG', '')
@@ -139,11 +139,24 @@ def _apply(image, index, fd, progress, stopped):
     if code:
         raise OSError(_wim_error(lib, code))
 
+    synced = [0]
+    failed = []
+
     def report(msg, info, _ctx):
         if stopped():
             return STATUS_ABORT
         if msg == MSG_EXTRACT_STREAMS:
             e = _Extract.from_address(info)
+            # wimlib writes through the page cache: unchecked, gigabytes wait
+            # there, the bar runs ahead and a cancel takes half an hour.
+            # This runs on wimlib's own thread, so it waits for the drive.
+            if e.completed_bytes - synced[0] >= SYNC_EVERY:
+                try:
+                    os.fdatasync(fd)
+                except OSError as err:
+                    failed.append(err)
+                    return STATUS_ABORT
+                synced[0] = e.completed_bytes
             progress(e.completed_bytes, max(e.total_bytes, 1))
         return 0
 
@@ -154,6 +167,8 @@ def _apply(image, index, fd, progress, stopped):
         code = lib.wimlib_extract_image(wim, index, f"{FD_PREFIX}{fd}".encode(), EXTRACT_FLAG_NTFS)
     finally:
         lib.wimlib_free(wim)
+    if failed:
+        raise failed[0]
     if code == ERR_ABORTED_BY_PROGRESS:
         raise Stopped
     if code:
