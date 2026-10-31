@@ -1,25 +1,17 @@
-#!/usr/bin/env python3
 """Measure how fast a drive really is, before Windows To Go is deployed onto it.
 
-Windows To Go does not merely live on the drive, it *runs* from it: every
+Windows To Go does not merely live on the drive, it runs from it: every
 page-in, every registry write, every event-log line is a small synchronous
-write. A stick that copies one big file at a respectable rate can still be
-unusable that way, so the sequential number decides nothing on its own - the
-4 KiB random write rate is what separates a working system from one that sits
-at 100% disk usage with a response time measured in minutes.
+write. A stick that copies one big file at a good rate can still be unusable
+that way, so the 4 KiB random write rate is the number that decides.
 
 Destructive: it writes to the raw device. The caller runs it only after the
-user has agreed to erase the drive, and after wipefs, so a drive whose test is
-refused is left plainly empty rather than subtly corrupted.
-
-Usage:  speed_logic.py /dev/sdX
-Prints: SPEEDTEST: <sequential MB/s> <random 4K writes per second>
+user has agreed to erase the drive, and after wiping it.
 """
 
 import mmap
 import os
 import random
-import sys
 import time
 
 SEQ_CHUNK = 4 << 20          # one sequential write
@@ -28,21 +20,6 @@ SEQ_LIMIT_SECONDS = 6.0      # and on a slow one, before the user gives up
 RAND_BLOCK = 4096
 RAND_LIMIT_OPS = 256
 RAND_LIMIT_SECONDS = 6.0
-
-
-def _open_device(path):
-    """O_DIRECT if the device takes it, buffered-but-synchronous otherwise.
-
-    O_DIRECT is what keeps the page cache from reporting the host's RAM speed
-    instead of the stick's. Not every device or filesystem accepts it, and a
-    benchmark is never worth failing a flash over, so fall back rather than
-    raise. O_DSYNC in both cases: without it a write returns as soon as the
-    request is queued, which is exactly the latency being measured.
-    """
-    try:
-        return os.open(path, os.O_WRONLY | os.O_DIRECT | os.O_DSYNC), True
-    except OSError:
-        return os.open(path, os.O_WRONLY | os.O_DSYNC), False
 
 
 def _buffer(size):
@@ -55,16 +32,12 @@ def _buffer(size):
     return buf
 
 
-def measure(path):
-    fd, direct = _open_device(path)
-    try:
-        return measure_fd(fd, direct)
-    finally:
-        os.close(fd)
-
-
 def measure_fd(fd, direct):
-    """The same on an fd opened for writing; direct: whether it has O_DIRECT."""
+    """(sequential MB/s, random 4 KiB writes/s) on an fd opened for writing.
+
+    direct: whether the fd has O_DIRECT. Without it the page cache would
+    report the host's RAM speed, so the caller opens it with O_SYNC too.
+    """
     size = os.lseek(fd, 0, os.SEEK_END)
     if size < SEQ_CHUNK * 2:
         raise ValueError("drive too small to measure")
@@ -100,21 +73,3 @@ def measure_fd(fd, direct):
 
     return written / seq_elapsed / 1e6, ops / rand_elapsed
 
-
-def main():
-    if len(sys.argv) != 2:
-        print("usage: speed_logic.py /dev/sdX", file=sys.stderr)
-        return 2
-    try:
-        seq_mbps, rand_iops = measure(sys.argv[1])
-    # a benchmark that cannot run must never be the reason a flash does not:
-    # the caller treats no output as "unknown" and carries on
-    except (OSError, ValueError) as e:  # noqa: BLE001
-        print(f"speed test failed: {e}", file=sys.stderr)
-        return 1
-    print(f"SPEEDTEST: {seq_mbps:.1f} {rand_iops:.0f}")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

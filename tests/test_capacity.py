@@ -117,7 +117,7 @@ class CapacityProblem(unittest.TestCase):
 
     def check(self, drive_bytes, **kwargs):
         win = self.window(**kwargs)
-        with mock.patch.object(main, "device_size_bytes", return_value=drive_bytes):
+        with mock.patch.object(main, "device_size", return_value=drive_bytes):
             return win.capacity_problem()
 
     def test_a_drive_with_room_to_spare_passes(self):

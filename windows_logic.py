@@ -9,12 +9,10 @@ from gi.repository import GLib
 from udisks_logic import (FILESYSTEM, NO_OPTIONS, bus, call, make_volume, mount,
                           mounted_iso, open_device, resolve, unmount, unmount_all)
 
-# Locals s s s
 def get_locale_dict():
     lang = os.environ.get('LANG', '')
     if lang.startswith('ru'):
         return {
-# russian locals
             "prep": "Подготовка накопителя...",
             "copy_base": "Копирование базовых файлов...",
             "copy_wim": "Прямое копирование WIM...",
@@ -25,7 +23,6 @@ def get_locale_dict():
             "no_space": "Не хватает места в {dir} для перепаковки образа",
         }
     return {
-# english locals
         "prep": "Preparing drive...",
         "copy_base": "Copying base files...",
         "copy_wim": "Directly copying WIM...",

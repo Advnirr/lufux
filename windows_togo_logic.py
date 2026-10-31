@@ -15,12 +15,10 @@ from udisks_logic import (BASIC_DATA, BLOCK, FILESYSTEM, NO_OPTIONS, PARTITION, 
                           mounted_iso, objects, open_device, resolve, unmount, unmount_all)
 from windows_logic import WIM_NAMES, Stopped
 
-# Locals
 def get_locale_dict():
     lang = os.environ.get('LANG', '')
     if lang.startswith('ru'):
         return {
-# russian locals
             "prep": "Подготовка накопителя...",
             "part": "Создание разделов (ESP + Windows)...",
             "no_image": "В образе не найден install.wim/install.esd",
@@ -32,7 +30,6 @@ def get_locale_dict():
             "sync": "Синхронизация ввода-вывода (sync)..."
         }
     return {
-# english locals
         "prep": "Preparing drive...",
         "part": "Creating partitions (ESP + Windows)...",
         "no_image": "install.wim/install.esd not found in the image",

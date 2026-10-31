@@ -6,6 +6,7 @@ import time
 import re
 import json
 import queue
+import shutil
 from pathlib import Path
 
 # Flatpak points XDG_CONFIG_HOME into the sandbox
@@ -30,24 +31,17 @@ WTG_ESP_BYTES = 513 * 1024 ** 2
 WTG_NTFS_OVERHEAD = 1.03
 WTG_FREE_MARGIN = 2 * 1024 ** 3
 
-# resolving through $PATH would be no better than handing subprocess a bare
-# name, since $PATH is user-controlled; only these locations are trusted.
+# what the package installer runs as root; $PATH is the user's, so it is
+# never searched
 TRUSTED_BIN_DIRS = ("/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/local/sbin")
-_BIN_CACHE = {}
+
 
 def resolve_bin(name):
-    # cached: auto_refresh_drives resolves lsblk every 2 seconds for the whole
-    # lifetime of the app. Only hits are cached, so a binary installed by the
-    # dependency installer is still picked up on the next call.
-    path = _BIN_CACHE.get(name)
-    if path is None:
-        for directory in TRUSTED_BIN_DIRS:
-            candidate = os.path.join(directory, name)
-            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-                path = candidate
-                _BIN_CACHE[name] = path
-                break
-    return path or name
+    for directory in TRUSTED_BIN_DIRS:
+        candidate = os.path.join(directory, name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return name
 
 
 def trusted_bin(name):
@@ -104,7 +98,7 @@ def list_iso_editions(iso_path):
             else:
                 return []
             info = subprocess.run(  # nosec B603
-                [resolve_bin('wimlib-imagex'), 'info', image],
+                [shutil.which('wimlib-imagex') or 'wimlib-imagex', 'info', image],
                 text=True, capture_output=True, check=False, timeout=120).stdout
         return parse_wim_info(info)
     # a listing that fails costs the edition choice, never the flash
@@ -159,11 +153,6 @@ def unwritten_bytes(meminfo="/proc/meminfo"):
         return 0
 
 
-def device_size_bytes(dev):
-    """The whole device's size in bytes, or 0 when udisks cannot say."""
-    return device_size(dev)
-
-
 def load_config():
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -199,7 +188,6 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, GLib, Gio, Gdk
 
-# importing logic
 from windows_logic import write_windows
 from windows_togo_logic import write_windows_togo
 from universal_logic import write_image
@@ -208,17 +196,14 @@ from udisks_logic import (PortalPath, can_format, device_size, drive_identity, i
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
 from iso_logic import volume_label, identify, windows_name
 
-# here I am
 APP_VERSION = "1.4.1"
 GITHUB_URL = "https://github.com/Advnirr/lufux"
 WEB_URL = "https://advnirr.org/"
 
-# Locals again
 def get_locale_dict():
     lang = os.environ.get('LANG', '')
     if lang.startswith('ru'):
         return {
-# russian locals
             "title": "Lufux",
             "about": "О программе",
             "btn_next": "Далее",
@@ -257,7 +242,6 @@ def get_locale_dict():
             "verify_row": "Проверить после записи",
             "verify_hint": "Сравнить флешку с образом",
             "speed_eta": "{pct}% · {speed} МБ/с · осталось {eta}",
-            "nvme_lock": "Запись на NVMe заблокирована!",
             "warn1_title": "Внимание!",
             "warn1_body": "Все данные на накопителе\n<b>{dev}</b>\nбудут БЕЗВОЗВРАТНО УНИЧТОЖЕНЫ.\n\nПродолжить?",
             "warn2_title": "Последнее предупреждение",
@@ -285,23 +269,23 @@ def get_locale_dict():
             "lang_restart_title": "Смена языка",
             "lang_restart_body": "Новый язык будет применен после перезапуска программы.",
             "dep_missing_title": "Отсутствуют зависимости",
-            "dep_missing_body": "Для записи требуются системные пакеты:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nУстановить их сейчас?",
+            "dep_missing_body": "Для записи требуются системные пакеты:\n<b>{deps}</b>\n\nДистрибутив: <b>{distro}</b>\nУстановить их сейчас?",
             "dep_unsupported": "Не хватает пакетов: <b>{deps}</b>\nПожалуйста, установите их вручную через пакетный менеджер.",
             "btn_install": "Установить",
             "iso_portal": "Lufux не может открыть образ из этой папки. Переложите его в домашнюю папку.",
             "speed_title": "Накопитель слишком медленный",
             "speed_body": (
                 "Замер накопителя:\n"
-                "• последовательная запись — <b>{seq} МБ/с</b>\n"
-                "• случайная запись 4 КБ — <b>{iops} операций/с</b>\n\n"
-                "Это мало, ориентир — {min_seq} МБ/с и {min_iops} операций/с. "
+                "• последовательная запись: <b>{seq} МБ/с</b>\n"
+                "• случайная запись 4 КБ: <b>{iops} операций/с</b>\n\n"
+                "Это мало. Нужно хотя бы {min_seq} МБ/с и {min_iops} операций/с. "
                 "Windows будет работать с этого накопителя: на такой скорости "
                 "она грузится часами и подвисает почти на любом действии.\n\n"
                 "Запись займёт несколько часов в любом случае. Накопитель уже "
                 "очищен, отмена оставит его пустым."
             ),
-            "speed_ok": "Скорость накопителя: {seq} МБ/с, {iops} операций/с — достаточно",
-            "speed_slow": "Скорость накопителя: {seq} МБ/с, {iops} операций/с — мало",
+            "speed_ok": "Скорость накопителя {seq} МБ/с, {iops} операций/с. Этого достаточно",
+            "speed_slow": "Скорость накопителя {seq} МБ/с, {iops} операций/с. Этого мало",
             "btn_continue_anyway": "Всё равно продолжить",
             "speed_canceled": "Запись отменена: накопитель слишком медленный",
             "cap_block_title": "Образ не поместится",
@@ -320,11 +304,10 @@ def get_locale_dict():
             "cap_log": "Нужно {needed}, на накопителе {size}",
             "err_code": "Код:",
             "drive_changed": "Накопитель {dev} сменился после выбора. Выберите его заново.",
-            "flash_failed": "Запись не завершилась. Подробности — в журнале.",
+            "flash_failed": "Запись не завершилась. Подробности в журнале.",
             "scheme_dd": "Isohybrid (побайтовая копия через dd)"
         }
     return {
-# english locals
         "title": "Lufux",
         "about": "About",
         "btn_next": "Next",
@@ -363,7 +346,6 @@ def get_locale_dict():
         "verify_row": "Verify after writing",
         "verify_hint": "Compare the drive with the image",
         "speed_eta": "{pct}% · {speed} MB/s · {eta} left",
-        "nvme_lock": "NVMe writing is disabled!",
         "warn1_title": "Warning!",
         "warn1_body": "All data on drive\n<b>{dev}</b>\nwill be PERMANENTLY DESTROYED.\n\nContinue?",
         "warn2_title": "Final Warning",
@@ -498,7 +480,6 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.view_stack.add_named(self.setup_page_summary(), "page_summary")
         self.view_stack.add_named(self.setup_page_flash(), "page_flash")
 
-        # Navigation wizard panel
         self.nav_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         self.nav_box.set_margin_start(15)
         self.nav_box.set_margin_end(15)
@@ -751,12 +732,10 @@ class LufuxWindow(Adw.ApplicationWindow):
         scroll.set_child(self.console_view)
         box.append(scroll)
 
-        # progressbar
         self.flash_progress = Gtk.ProgressBar()
         self.flash_progress.set_show_text(True)
         box.append(self.flash_progress)
 
-        # readyy btn
         self.btn_done = Gtk.Button(label=T["btn_done"])
         self.btn_done.add_css_class("suggested-action")
         self.btn_done.set_visible(False)
@@ -851,10 +830,6 @@ class LufuxWindow(Adw.ApplicationWindow):
     # --- Confirmation and start ---
 
     def request_start(self):
-        if "nvme" in self.selected_dev:
-            self.append_log(T["nvme_lock"])
-            return
-
         problem = self.capacity_problem()
         if problem:
             kind, needed, size = problem
@@ -873,7 +848,7 @@ class LufuxWindow(Adw.ApplicationWindow):
         with almost nothing free. Any missing number returns None: a check that
         cannot be made must not stand in the way of a flash.
         """
-        size = device_size_bytes(self.selected_dev)
+        size = device_size(self.selected_dev)
         if not size:
             return None
 
@@ -1126,17 +1101,15 @@ class LufuxWindow(Adw.ApplicationWindow):
         page.add(group)
         pref_dialog.add(page)
 
-        # themes: dark and light
-        theme_row = Adw.ComboRow(title=T.get("theme", "Тема"))
-        theme_model = Gtk.StringList.new([T.get("theme_sys", "Системная"), T.get("theme_light", "Светлая"), T.get("theme_dark", "Тёмная")])
+        theme_row = Adw.ComboRow(title=T["theme"])
+        theme_model = Gtk.StringList.new([T["theme_sys"], T["theme_light"], T["theme_dark"]])
         theme_row.set_model(theme_model)
 
         theme_row.set_selected(APP_CONFIG.get("theme", 0))
         theme_row.connect("notify::selected", self.on_theme_changed)
         group.add(theme_row)
 
-        # langs/locals
-        lang_row = Adw.ComboRow(title=T.get("language", "Язык"))
+        lang_row = Adw.ComboRow(title=T["language"])
         lang_model = Gtk.StringList.new(["English", "Русский"])
         lang_row.set_model(lang_model)
 
@@ -1167,7 +1140,7 @@ class LufuxWindow(Adw.ApplicationWindow):
                 heading=T["lang_restart_title"],
                 body=T["lang_restart_body"]
             )
-            dialog.add_response("ok", T.get("btn_close_dialog", "OK"))
+            dialog.add_response("ok", T["btn_close_dialog"])
             dialog.choose(self, None, lambda *args: None)
         else:
             os.environ['LANG'] = new_lang
@@ -1223,7 +1196,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         dialog.set_title(T["select_iso"])
         f_iso = Gtk.FileFilter()
         f_iso.set_name("ISO Images")
-        f_iso.add_pattern("*.iso")
+        # case-insensitive, unlike add_pattern: WIN11.ISO is shown too
+        f_iso.add_suffix("iso")
         filters = Gio.ListStore.new(Gtk.FileFilter)
         filters.append(f_iso)
         dialog.set_filters(filters)
