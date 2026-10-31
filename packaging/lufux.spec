@@ -6,6 +6,7 @@ License:        GPL-3.0-or-later
 URL:            https://github.com/Advnirr/lufux
 Source0:        %{url}/archive/refs/tags/v%{version}-stable.tar.gz
 BuildArch:      noarch
+BuildRequires:  gettext
 
 Requires:       python3
 Requires:       python3-gobject
@@ -30,8 +31,9 @@ Windows To Go onto a USB drive.
 
 %install
 sh packaging/install.sh %{buildroot}
+%find_lang lufux
 
-%files
+%files -f lufux.lang
 %license LICENSE
 %doc README.md
 %{_datadir}/lufux/
