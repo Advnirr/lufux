@@ -37,6 +37,7 @@ def get_locale_dict():
     }
 
 CHUNK = 4 << 20
+SYNC_EVERY = 64 << 20
 # FAT32 holds files up to 4 GiB - 1; the script splits from 4 GB, as it did
 SPLIT_FROM = 4_000_000_000
 SPLIT_MB = "3800"
@@ -55,12 +56,19 @@ class Stopped(Exception):
 
 def _copy_file(src, dst, advance, stopped):
     with open(src, "rb") as fi, open(dst, "wb") as fo:
+        unsynced = 0
         while chunk := fi.read(CHUNK):
             if stopped():
                 raise Stopped
             fo.write(chunk)
+            unsynced += len(chunk)
+            # otherwise install.wim lands in the page cache, the bar shows 100%
+            # long before the drive has it, and a cancel waits minutes
+            if unsynced >= SYNC_EVERY:
+                fo.flush()
+                os.fdatasync(fo.fileno())
+                unsynced = 0
             advance(len(chunk))
-        # otherwise the copy lands in the page cache and unmount takes minutes
         fo.flush()
         os.fsync(fo.fileno())
 
