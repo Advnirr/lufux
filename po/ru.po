@@ -1,0 +1,506 @@
+# Russian translation of Lufux.
+# This file is distributed under the same license as Lufux.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: lufux\n"
+"Report-Msgid-Bugs-To: https://github.com/Advnirr/lufux/issues\n"
+"POT-Creation-Date: 2026-10-31 11:14+0300\n"
+"PO-Revision-Date: 2026-10-31 11:14+0300\n"
+"Last-Translator: Mikhail Mlhcnn\n"
+"Language-Team: Russian\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
+"n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+#: main.py
+msgid "About"
+msgstr "О программе"
+
+#: main.py
+msgid "Next"
+msgstr "Далее"
+
+#: main.py
+msgid "Back"
+msgstr "Назад"
+
+#: main.py
+msgid "Start Flashing"
+msgstr "Начать запись"
+
+#: main.py
+msgid "Cancel"
+msgstr "Отмена"
+
+#: main.py
+msgid "Yes, wipe it"
+msgstr "Да, стереть"
+
+#: main.py
+msgid "Done"
+msgstr "Готово"
+
+#: main.py
+msgid "Drop to choose the image"
+msgstr "Отпустите, чтобы выбрать образ"
+
+#: main.py
+msgid "Image written"
+msgstr "Образ записан"
+
+#: main.py
+msgid "Writing failed"
+msgstr "Ошибка записи"
+
+#: main.py
+#, python-brace-format
+msgid "{name} on {dev}"
+msgstr "{name} на {dev}"
+
+#: main.py
+msgid "Step 1: Select Drive"
+msgstr "Шаг 1: Выбор накопителя"
+
+#: main.py
+msgid "Step 2: Select ISO"
+msgstr "Шаг 2: Выбор образа"
+
+#: main.py
+msgid "Step 3: Summary"
+msgstr "Шаг 3: Сводка"
+
+#: main.py
+msgid "No drives found"
+msgstr "Накопители не найдены"
+
+#: main.py
+msgid "Select a drive"
+msgstr "Выберите накопитель"
+
+#: main.py
+msgid "Select ISO Image"
+msgstr "Выбрать ISO-образ"
+
+#: main.py
+msgid "No ISO selected"
+msgstr "Образ не выбран"
+
+#: main.py
+msgid "OS Type:"
+msgstr "Тип ОС:"
+
+#: main.py
+msgid "Windows edition:"
+msgstr "Редакция Windows:"
+
+#: main.py
+msgid "Reading the image..."
+msgstr "Чтение образа..."
+
+#: main.py
+msgid "Windows"
+msgstr "Windows"
+
+#: main.py
+msgid "Linux / Isohybrid"
+msgstr "Linux / Isohybrid"
+
+#: main.py
+msgid "Unknown / Other"
+msgstr "Неизвестно / Другое"
+
+#: main.py
+msgid "Partition Scheme (for Windows):"
+msgstr "Схема разделов (для Windows):"
+
+#: main.py
+msgid "GPT (UEFI / FAT32)"
+msgstr "GPT (UEFI / FAT32)"
+
+#: main.py
+msgid "MBR (Legacy BIOS / NTFS)"
+msgstr "MBR (Legacy BIOS / NTFS)"
+
+#: main.py
+msgid "Windows To Go (bootable Windows on USB)"
+msgstr "Windows To Go (запускаемая Windows на USB)"
+
+#: main.py
+msgid "Windows To Go (GPT / UEFI)"
+msgstr "Windows To Go (GPT / UEFI)"
+
+#: main.py
+msgid "Target Drive"
+msgstr "Целевой накопитель"
+
+#: main.py
+msgid "Selected ISO"
+msgstr "Выбранный образ"
+
+#: main.py
+msgid "Detected OS"
+msgstr "Определенная система"
+
+#: main.py
+msgid "Partition Scheme"
+msgstr "Схема разметки"
+
+#: main.py
+msgid "Edition"
+msgstr "Редакция"
+
+#: main.py
+msgid "Verify after writing"
+msgstr "Проверить после записи"
+
+#: main.py
+msgid "Compare the drive with the image"
+msgstr "Сравнить флешку с образом"
+
+#: main.py
+#, python-brace-format
+msgid "{pct}% · {speed} MB/s · {eta} left"
+msgstr "{pct}% · {speed} МБ/с · осталось {eta}"
+
+#: main.py
+msgid "Warning!"
+msgstr "Внимание!"
+
+#: main.py
+#, python-brace-format
+msgid ""
+"All data on drive\n"
+"<b>{dev}</b>\n"
+"will be PERMANENTLY DESTROYED.\n"
+"\n"
+"Continue?"
+msgstr ""
+"Все данные на накопителе\n"
+"<b>{dev}</b>\n"
+"будут БЕЗВОЗВРАТНО УНИЧТОЖЕНЫ.\n"
+"\n"
+"Продолжить?"
+
+#: main.py
+msgid "Final Warning"
+msgstr "Последнее предупреждение"
+
+#: main.py
+msgid "Are you absolutely sure? This action cannot be undone."
+msgstr "Вы абсолютно уверены? Это действие невозможно отменить."
+
+#: main.py
+msgid "Flashing completed successfully"
+msgstr "Запись завершена успешно"
+
+#: main.py
+msgid "Canceled by user"
+msgstr "Отменено пользователем"
+
+#: main.py
+msgid "Critical Error:"
+msgstr "Критическая ошибка:"
+
+#: main.py
+msgid "Initialization... Waiting to start.\n"
+msgstr "Инициализация... Ожидание старта.\n"
+
+#: main.py
+msgid "Interrupt flashing progress?"
+msgstr "Прервать прогресс записи?"
+
+#: main.py
+msgid ""
+"The image writing process is still ongoing. Are you sure you want to "
+"interrupt it? The drive will be unbootable."
+msgstr ""
+"Процесс записи образа все еще идет. Вы уверены, что хотите прервать его? Это "
+"приведет к неработоспособности накопителя до повторного форматирования"
+
+#: main.py
+msgid "Yes, interrupt"
+msgstr "Да, прервать"
+
+#: main.py
+msgid "Interrupted by user"
+msgstr "Прервано пользователем"
+
+#: main.py
+msgid "Stopping the flashing process..."
+msgstr "Остановка процесса записи..."
+
+#: main.py
+#, python-brace-format
+msgid "Stopping: {mb} MB left to write"
+msgstr "Остановка: осталось записать {mb} МБ"
+
+#: main.py
+msgid ""
+"Lufux can close once stopping is over. Otherwise the image stays mounted."
+msgstr ""
+"Lufux закроется, когда остановка закончится. Иначе в системе останется "
+"смонтированный образ."
+
+#: main.py
+msgid "Restart"
+msgstr "Начать заново"
+
+#: main.py
+msgid "Close Program"
+msgstr "Закрыть программу"
+
+#: main.py
+msgid "Close"
+msgstr "Закрыть"
+
+#: main.py
+msgid "Settings"
+msgstr "Параметры"
+
+#: main.py
+msgid "Theme"
+msgstr "Тема оформления"
+
+#: main.py
+msgid "System"
+msgstr "Системная"
+
+#: main.py
+msgid "Light"
+msgstr "Светлая"
+
+#: main.py
+msgid "Dark"
+msgstr "Тёмная"
+
+#: main.py
+msgid "Language"
+msgstr "Язык интерфейса"
+
+#: main.py
+msgid "Language Change"
+msgstr "Смена языка"
+
+#: main.py
+msgid "The new language will be applied after restarting the application."
+msgstr "Новый язык будет применен после перезапуска программы."
+
+#: main.py
+msgid "Missing Dependencies"
+msgstr "Отсутствуют зависимости"
+
+#: main.py
+#, python-brace-format
+msgid ""
+"The following system packages are required:\n"
+"<b>{deps}</b>\n"
+"\n"
+"Detected distribution: <b>{distro}</b>\n"
+"Install them now?"
+msgstr ""
+"Для записи требуются системные пакеты:\n"
+"<b>{deps}</b>\n"
+"\n"
+"Дистрибутив: <b>{distro}</b>\n"
+"Установить их сейчас?"
+
+#: main.py
+#, python-brace-format
+msgid ""
+"Missing packages: <b>{deps}</b>\n"
+"Please install them manually using your package manager."
+msgstr ""
+"Не хватает пакетов: <b>{deps}</b>\n"
+"Пожалуйста, установите их вручную через пакетный менеджер."
+
+#: main.py
+msgid "Install"
+msgstr "Установить"
+
+#: main.py
+msgid ""
+"Lufux cannot open the image from this folder. Move it to your home folder."
+msgstr ""
+"Lufux не может открыть образ из этой папки. Переложите его в домашнюю папку."
+
+#: main.py
+msgid "This drive is too slow"
+msgstr "Накопитель слишком медленный"
+
+#: main.py
+#, python-brace-format
+msgid ""
+"Measured on this drive:\n"
+"• sequential write — <b>{seq} MB/s</b>\n"
+"• random 4 KB write — <b>{iops} ops/s</b>\n"
+"\n"
+"That is low; the bar is {min_seq} MB/s and {min_iops} ops/s. Windows will be "
+"running off this drive, and at that speed it boots in hours and stalls on "
+"almost anything you do.\n"
+"\n"
+"Writing takes hours either way. The drive is already erased, so cancelling "
+"leaves it empty."
+msgstr ""
+"Замер накопителя:\n"
+"• последовательная запись: <b>{seq} МБ/с</b>\n"
+"• случайная запись 4 КБ: <b>{iops} операций/с</b>\n"
+"\n"
+"Это мало. Нужно хотя бы {min_seq} МБ/с и {min_iops} операций/с. Windows "
+"будет работать с этого накопителя: на такой скорости она грузится часами и "
+"подвисает почти на любом действии.\n"
+"\n"
+"Запись займёт несколько часов в любом случае. Накопитель уже очищен, отмена "
+"оставит его пустым."
+
+#: main.py
+#, python-brace-format
+msgid "Drive speed: {seq} MB/s, {iops} ops/s — good enough"
+msgstr "Скорость накопителя {seq} МБ/с, {iops} операций/с. Этого достаточно"
+
+#: main.py
+#, python-brace-format
+msgid "Drive speed: {seq} MB/s, {iops} ops/s — too low"
+msgstr "Скорость накопителя {seq} МБ/с, {iops} операций/с. Этого мало"
+
+#: main.py
+msgid "Continue anyway"
+msgstr "Всё равно продолжить"
+
+#: main.py
+msgid "Flashing cancelled: the drive is too slow"
+msgstr "Запись отменена: накопитель слишком медленный"
+
+#: main.py
+msgid "The image will not fit"
+msgstr "Образ не поместится"
+
+#: main.py
+#, python-brace-format
+msgid ""
+"Writing this needs <b>{needed}</b> and the drive holds <b>{size}</b>.\n"
+"\n"
+"Use a larger drive, or pick a smaller edition."
+msgstr ""
+"Для записи нужно <b>{needed}</b>, а на накопителе <b>{size}</b>.\n"
+"\n"
+"Возьмите накопитель больше или выберите редакцию поменьше."
+
+#: main.py
+msgid "Almost nothing will be left free"
+msgstr "Места почти не останется"
+
+#: main.py
+#, python-brace-format
+msgid ""
+"About <b>{free}</b> would be free once the deployment finishes.\n"
+"\n"
+"Windows still has its first-run setup to get through, and it may not finish "
+"with that little room."
+msgstr ""
+"После развёртывания свободным останется около <b>{free}</b>.\n"
+"\n"
+"Windows ещё предстоит завершить первую настройку, и на таком остатке она "
+"может не пройти её до конца."
+
+#: main.py
+#, python-brace-format
+msgid "Needs {needed}, the drive holds {size}"
+msgstr "Нужно {needed}, на накопителе {size}"
+
+#: main.py
+msgid "Code:"
+msgstr "Код:"
+
+#: main.py
+#, python-brace-format
+msgid "{dev} is another drive than the one chosen. Choose it again."
+msgstr "Накопитель {dev} сменился после выбора. Выберите его заново."
+
+#: main.py
+msgid "Flashing did not finish. The log has the details."
+msgstr "Запись не завершилась. Подробности в журнале."
+
+#: main.py
+msgid "Isohybrid (dd block copy)"
+msgstr "Isohybrid (побайтовая копия через dd)"
+
+#: universal_logic.py
+msgid "Unmounting..."
+msgstr "Отмонтирование..."
+
+#: universal_logic.py
+msgid "Copying image..."
+msgstr "Копирование образа..."
+
+#: universal_logic.py windows_logic.py windows_togo_logic.py
+msgid "Syncing I/O (sync)..."
+msgstr "Синхронизация ввода-вывода (sync)..."
+
+#: universal_logic.py
+msgid "Verifying..."
+msgstr "Проверка записи..."
+
+#: universal_logic.py
+msgid "The image was not written correctly"
+msgstr "Образ записан некорректно"
+
+#: windows_logic.py windows_togo_logic.py
+msgid "Preparing drive..."
+msgstr "Подготовка накопителя..."
+
+#: windows_logic.py
+msgid "Copying base files..."
+msgstr "Копирование базовых файлов..."
+
+#: windows_logic.py
+msgid "Directly copying WIM..."
+msgstr "Прямое копирование WIM..."
+
+#: windows_logic.py
+msgid "Splitting WIM image..."
+msgstr "Разделение WIM-образа..."
+
+#: windows_logic.py
+msgid "Converting to LZX (Solid archive)..."
+msgstr "Конвертация в LZX (Solid архив)..."
+
+#: windows_logic.py
+msgid "Installing the Legacy BIOS bootloader (GRUB)..."
+msgstr "Установка загрузчика для Legacy BIOS (GRUB)..."
+
+#: windows_logic.py
+#, python-brace-format
+msgid "Not enough space in {dir} to repack the image"
+msgstr "Не хватает места в {dir} для перепаковки образа"
+
+#: windows_togo_logic.py
+msgid "Creating partitions (ESP + Windows)..."
+msgstr "Создание разделов (ESP + Windows)..."
+
+#: windows_togo_logic.py
+msgid "install.wim/install.esd not found in the image"
+msgstr "В образе не найден install.wim/install.esd"
+
+#: windows_togo_logic.py
+msgid "The selected edition is not present in the image"
+msgstr "Выбранной редакции нет в образе"
+
+#: windows_togo_logic.py
+msgid "bootmgfw.efi not found in the image"
+msgstr "В образе не найден bootmgfw.efi"
+
+#: windows_togo_logic.py
+msgid "Measuring drive speed..."
+msgstr "Замер скорости накопителя..."
+
+#: windows_togo_logic.py
+msgid "Deploying Windows to the drive (this takes a while)..."
+msgstr "Развёртывание Windows на накопитель (это надолго)..."
+
+#: windows_togo_logic.py
+msgid "Installing the UEFI bootloader..."
+msgstr "Установка загрузчика UEFI..."

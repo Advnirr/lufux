@@ -108,6 +108,14 @@ They cover what can be checked without a drive: the BCD store Lufux builds,
 reading GPT GUIDs, the capacity check, dependency detection and the speed test.
 They never touch a real device and do not need root.
 
+## 🌐 Translations
+
+Strings live in `po/` as gettext catalogs. To add a language, copy
+`po/lufux.pot` to `po/<code>.po` (for example `de.po`) and translate it. After
+changing strings in the code, run `tools/update-po.sh`. A source checkout reads
+`po/` directly; packages compile it with `msgfmt`. The tests fail if a string is
+missing from a catalog or a translation loses a `{placeholder}`.
+
 ## ⚠️ Warnings
 
 * **The selected drive is erased completely,** in every mode. Check the device name on the summary page before you start.

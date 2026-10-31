@@ -1,0 +1,473 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the lufux package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: lufux\n"
+"Report-Msgid-Bugs-To: https://github.com/Advnirr/lufux/issues\n"
+"POT-Creation-Date: 2026-10-31 11:14+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: main.py
+msgid "About"
+msgstr ""
+
+#: main.py
+msgid "Next"
+msgstr ""
+
+#: main.py
+msgid "Back"
+msgstr ""
+
+#: main.py
+msgid "Start Flashing"
+msgstr ""
+
+#: main.py
+msgid "Cancel"
+msgstr ""
+
+#: main.py
+msgid "Yes, wipe it"
+msgstr ""
+
+#: main.py
+msgid "Done"
+msgstr ""
+
+#: main.py
+msgid "Drop to choose the image"
+msgstr ""
+
+#: main.py
+msgid "Image written"
+msgstr ""
+
+#: main.py
+msgid "Writing failed"
+msgstr ""
+
+#: main.py
+#, python-brace-format
+msgid "{name} on {dev}"
+msgstr ""
+
+#: main.py
+msgid "Step 1: Select Drive"
+msgstr ""
+
+#: main.py
+msgid "Step 2: Select ISO"
+msgstr ""
+
+#: main.py
+msgid "Step 3: Summary"
+msgstr ""
+
+#: main.py
+msgid "No drives found"
+msgstr ""
+
+#: main.py
+msgid "Select a drive"
+msgstr ""
+
+#: main.py
+msgid "Select ISO Image"
+msgstr ""
+
+#: main.py
+msgid "No ISO selected"
+msgstr ""
+
+#: main.py
+msgid "OS Type:"
+msgstr ""
+
+#: main.py
+msgid "Windows edition:"
+msgstr ""
+
+#: main.py
+msgid "Reading the image..."
+msgstr ""
+
+#: main.py
+msgid "Windows"
+msgstr ""
+
+#: main.py
+msgid "Linux / Isohybrid"
+msgstr ""
+
+#: main.py
+msgid "Unknown / Other"
+msgstr ""
+
+#: main.py
+msgid "Partition Scheme (for Windows):"
+msgstr ""
+
+#: main.py
+msgid "GPT (UEFI / FAT32)"
+msgstr ""
+
+#: main.py
+msgid "MBR (Legacy BIOS / NTFS)"
+msgstr ""
+
+#: main.py
+msgid "Windows To Go (bootable Windows on USB)"
+msgstr ""
+
+#: main.py
+msgid "Windows To Go (GPT / UEFI)"
+msgstr ""
+
+#: main.py
+msgid "Target Drive"
+msgstr ""
+
+#: main.py
+msgid "Selected ISO"
+msgstr ""
+
+#: main.py
+msgid "Detected OS"
+msgstr ""
+
+#: main.py
+msgid "Partition Scheme"
+msgstr ""
+
+#: main.py
+msgid "Edition"
+msgstr ""
+
+#: main.py
+msgid "Verify after writing"
+msgstr ""
+
+#: main.py
+msgid "Compare the drive with the image"
+msgstr ""
+
+#: main.py
+#, python-brace-format
+msgid "{pct}% · {speed} MB/s · {eta} left"
+msgstr ""
+
+#: main.py
+msgid "Warning!"
+msgstr ""
+
+#: main.py
+#, python-brace-format
+msgid ""
+"All data on drive\n"
+"<b>{dev}</b>\n"
+"will be PERMANENTLY DESTROYED.\n"
+"\n"
+"Continue?"
+msgstr ""
+
+#: main.py
+msgid "Final Warning"
+msgstr ""
+
+#: main.py
+msgid "Are you absolutely sure? This action cannot be undone."
+msgstr ""
+
+#: main.py
+msgid "Flashing completed successfully"
+msgstr ""
+
+#: main.py
+msgid "Canceled by user"
+msgstr ""
+
+#: main.py
+msgid "Critical Error:"
+msgstr ""
+
+#: main.py
+msgid "Initialization... Waiting to start.\n"
+msgstr ""
+
+#: main.py
+msgid "Interrupt flashing progress?"
+msgstr ""
+
+#: main.py
+msgid ""
+"The image writing process is still ongoing. Are you sure you want to "
+"interrupt it? The drive will be unbootable."
+msgstr ""
+
+#: main.py
+msgid "Yes, interrupt"
+msgstr ""
+
+#: main.py
+msgid "Interrupted by user"
+msgstr ""
+
+#: main.py
+msgid "Stopping the flashing process..."
+msgstr ""
+
+#: main.py
+#, python-brace-format
+msgid "Stopping: {mb} MB left to write"
+msgstr ""
+
+#: main.py
+msgid ""
+"Lufux can close once stopping is over. Otherwise the image stays mounted."
+msgstr ""
+
+#: main.py
+msgid "Restart"
+msgstr ""
+
+#: main.py
+msgid "Close Program"
+msgstr ""
+
+#: main.py
+msgid "Close"
+msgstr ""
+
+#: main.py
+msgid "Settings"
+msgstr ""
+
+#: main.py
+msgid "Theme"
+msgstr ""
+
+#: main.py
+msgid "System"
+msgstr ""
+
+#: main.py
+msgid "Light"
+msgstr ""
+
+#: main.py
+msgid "Dark"
+msgstr ""
+
+#: main.py
+msgid "Language"
+msgstr ""
+
+#: main.py
+msgid "Language Change"
+msgstr ""
+
+#: main.py
+msgid "The new language will be applied after restarting the application."
+msgstr ""
+
+#: main.py
+msgid "Missing Dependencies"
+msgstr ""
+
+#: main.py
+#, python-brace-format
+msgid ""
+"The following system packages are required:\n"
+"<b>{deps}</b>\n"
+"\n"
+"Detected distribution: <b>{distro}</b>\n"
+"Install them now?"
+msgstr ""
+
+#: main.py
+#, python-brace-format
+msgid ""
+"Missing packages: <b>{deps}</b>\n"
+"Please install them manually using your package manager."
+msgstr ""
+
+#: main.py
+msgid "Install"
+msgstr ""
+
+#: main.py
+msgid ""
+"Lufux cannot open the image from this folder. Move it to your home folder."
+msgstr ""
+
+#: main.py
+msgid "This drive is too slow"
+msgstr ""
+
+#: main.py
+#, python-brace-format
+msgid ""
+"Measured on this drive:\n"
+"• sequential write — <b>{seq} MB/s</b>\n"
+"• random 4 KB write — <b>{iops} ops/s</b>\n"
+"\n"
+"That is low; the bar is {min_seq} MB/s and {min_iops} ops/s. Windows will be "
+"running off this drive, and at that speed it boots in hours and stalls on "
+"almost anything you do.\n"
+"\n"
+"Writing takes hours either way. The drive is already erased, so cancelling "
+"leaves it empty."
+msgstr ""
+
+#: main.py
+#, python-brace-format
+msgid "Drive speed: {seq} MB/s, {iops} ops/s — good enough"
+msgstr ""
+
+#: main.py
+#, python-brace-format
+msgid "Drive speed: {seq} MB/s, {iops} ops/s — too low"
+msgstr ""
+
+#: main.py
+msgid "Continue anyway"
+msgstr ""
+
+#: main.py
+msgid "Flashing cancelled: the drive is too slow"
+msgstr ""
+
+#: main.py
+msgid "The image will not fit"
+msgstr ""
+
+#: main.py
+#, python-brace-format
+msgid ""
+"Writing this needs <b>{needed}</b> and the drive holds <b>{size}</b>.\n"
+"\n"
+"Use a larger drive, or pick a smaller edition."
+msgstr ""
+
+#: main.py
+msgid "Almost nothing will be left free"
+msgstr ""
+
+#: main.py
+#, python-brace-format
+msgid ""
+"About <b>{free}</b> would be free once the deployment finishes.\n"
+"\n"
+"Windows still has its first-run setup to get through, and it may not finish "
+"with that little room."
+msgstr ""
+
+#: main.py
+#, python-brace-format
+msgid "Needs {needed}, the drive holds {size}"
+msgstr ""
+
+#: main.py
+msgid "Code:"
+msgstr ""
+
+#: main.py
+#, python-brace-format
+msgid "{dev} is another drive than the one chosen. Choose it again."
+msgstr ""
+
+#: main.py
+msgid "Flashing did not finish. The log has the details."
+msgstr ""
+
+#: main.py
+msgid "Isohybrid (dd block copy)"
+msgstr ""
+
+#: universal_logic.py
+msgid "Unmounting..."
+msgstr ""
+
+#: universal_logic.py
+msgid "Copying image..."
+msgstr ""
+
+#: universal_logic.py windows_logic.py windows_togo_logic.py
+msgid "Syncing I/O (sync)..."
+msgstr ""
+
+#: universal_logic.py
+msgid "Verifying..."
+msgstr ""
+
+#: universal_logic.py
+msgid "The image was not written correctly"
+msgstr ""
+
+#: windows_logic.py windows_togo_logic.py
+msgid "Preparing drive..."
+msgstr ""
+
+#: windows_logic.py
+msgid "Copying base files..."
+msgstr ""
+
+#: windows_logic.py
+msgid "Directly copying WIM..."
+msgstr ""
+
+#: windows_logic.py
+msgid "Splitting WIM image..."
+msgstr ""
+
+#: windows_logic.py
+msgid "Converting to LZX (Solid archive)..."
+msgstr ""
+
+#: windows_logic.py
+msgid "Installing the Legacy BIOS bootloader (GRUB)..."
+msgstr ""
+
+#: windows_logic.py
+#, python-brace-format
+msgid "Not enough space in {dir} to repack the image"
+msgstr ""
+
+#: windows_togo_logic.py
+msgid "Creating partitions (ESP + Windows)..."
+msgstr ""
+
+#: windows_togo_logic.py
+msgid "install.wim/install.esd not found in the image"
+msgstr ""
+
+#: windows_togo_logic.py
+msgid "The selected edition is not present in the image"
+msgstr ""
+
+#: windows_togo_logic.py
+msgid "bootmgfw.efi not found in the image"
+msgstr ""
+
+#: windows_togo_logic.py
+msgid "Measuring drive speed..."
+msgstr ""
+
+#: windows_togo_logic.py
+msgid "Deploying Windows to the drive (this takes a while)..."
+msgstr ""
+
+#: windows_togo_logic.py
+msgid "Installing the UEFI bootloader..."
+msgstr ""

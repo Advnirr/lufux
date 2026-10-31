@@ -3,6 +3,7 @@ import fcntl
 import mmap
 import os
 
+from i18n import _
 from udisks_logic import bus, open_device, resolve, unmount_all
 
 CHUNK = 4 << 20
@@ -11,21 +12,12 @@ TAIL = 1 << 20
 
 
 def get_locale_dict():
-    lang = os.environ.get('LANG', '')
-    if lang.startswith('ru'):
-        return {
-            "unmount": "Отмонтирование...",
-            "copy": "Копирование образа...",
-            "sync": "Синхронизация ввода-вывода (sync)...",
-            "verify": "Проверка записи...",
-            "mismatch": "Образ записан некорректно",
-        }
     return {
-        "unmount": "Unmounting...",
-        "copy": "Copying image...",
-        "sync": "Syncing I/O (sync)...",
-        "verify": "Verifying...",
-        "mismatch": "The image was not written correctly",
+        "unmount": _("Unmounting..."),
+        "copy": _("Copying image..."),
+        "sync": _("Syncing I/O (sync)..."),
+        "verify": _("Verifying..."),
+        "mismatch": _("The image was not written correctly"),
     }
 
 

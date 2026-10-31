@@ -10,35 +10,23 @@ import tempfile
 from gi.repository import GLib
 
 from bcd_logic import build_bcd, gpt_guids
+from i18n import _
 from speed_logic import measure_fd
 from udisks_logic import (BASIC_DATA, BLOCK, FILESYSTEM, NO_OPTIONS, PARTITION, bus, call, mount,
                           mounted_iso, objects, open_device, resolve, unmount, unmount_all)
 from windows_logic import SYNC_EVERY, WIM_NAMES, Stopped
 
 def get_locale_dict():
-    lang = os.environ.get('LANG', '')
-    if lang.startswith('ru'):
-        return {
-            "prep": "Подготовка накопителя...",
-            "part": "Создание разделов (ESP + Windows)...",
-            "no_image": "В образе не найден install.wim/install.esd",
-            "no_index": "Выбранной редакции нет в образе",
-            "no_bootmgr": "В образе не найден bootmgfw.efi",
-            "speed": "Замер скорости накопителя...",
-            "apply": "Развёртывание Windows на накопитель (это надолго)...",
-            "boot": "Установка загрузчика UEFI...",
-            "sync": "Синхронизация ввода-вывода (sync)..."
-        }
     return {
-        "prep": "Preparing drive...",
-        "part": "Creating partitions (ESP + Windows)...",
-        "no_image": "install.wim/install.esd not found in the image",
-        "no_index": "The selected edition is not present in the image",
-        "no_bootmgr": "bootmgfw.efi not found in the image",
-        "speed": "Measuring drive speed...",
-        "apply": "Deploying Windows to the drive (this takes a while)...",
-        "boot": "Installing the UEFI bootloader...",
-        "sync": "Syncing I/O (sync)..."
+        "prep": _("Preparing drive..."),
+        "part": _("Creating partitions (ESP + Windows)..."),
+        "no_image": _("install.wim/install.esd not found in the image"),
+        "no_index": _("The selected edition is not present in the image"),
+        "no_bootmgr": _("bootmgfw.efi not found in the image"),
+        "speed": _("Measuring drive speed..."),
+        "apply": _("Deploying Windows to the drive (this takes a while)..."),
+        "boot": _("Installing the UEFI bootloader..."),
+        "sync": _("Syncing I/O (sync)...")
     }
 
 

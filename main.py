@@ -9,6 +9,9 @@ import queue
 import shutil
 from pathlib import Path
 
+import i18n
+from i18n import _
+
 # Flatpak points XDG_CONFIG_HOME into the sandbox
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "lufux"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -182,7 +185,9 @@ def save_config(cfg):
 
 APP_CONFIG = load_config()
 if APP_CONFIG.get("lang"):
+    # GTK's own strings follow LANG
     os.environ["LANG"] = APP_CONFIG["lang"]
+i18n.set_language(APP_CONFIG.get("lang") or None)
 
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
@@ -201,184 +206,78 @@ GITHUB_URL = "https://github.com/Advnirr/lufux"
 WEB_URL = "https://advnirr.org/"
 
 def get_locale_dict():
-    lang = os.environ.get('LANG', '')
-    if lang.startswith('ru'):
-        return {
-            "title": "Lufux",
-            "about": "О программе",
-            "btn_next": "Далее",
-            "btn_back": "Назад",
-            "btn_start": "Начать запись",
-            "btn_cancel": "Отмена",
-            "btn_yes": "Да, стереть",
-            "btn_done": "Готово",
-            "drop_iso": "Отпустите, чтобы выбрать образ",
-            "notify_done": "Образ записан",
-            "notify_failed": "Ошибка записи",
-            "notify_body": "{name} на {dev}",
-            "step_drive": "Шаг 1: Выбор накопителя",
-            "step_iso": "Шаг 2: Выбор образа",
-            "step_summary": "Шаг 3: Сводка",
-            "no_drives": "Накопители не найдены",
-            "pick_drive": "Выберите накопитель",
-            "select_iso": "Выбрать ISO-образ",
-            "iso_not_selected": "Образ не выбран",
-            "os_type": "Тип ОС:",
-            "edition": "Редакция Windows:",
-            "edition_reading": "Чтение образа...",
-            "os_win": "Windows",
-            "os_lin": "Linux / Isohybrid",
-            "os_other": "Неизвестно / Другое",
-            "partition_scheme": "Схема разделов (для Windows):",
-            "scheme_gpt": "GPT (UEFI / FAT32)",
-            "scheme_mbr": "MBR (Legacy BIOS / NTFS)",
-            "wtg_mode": "Windows To Go (запускаемая Windows на USB)",
-            "wtg_summary": "Windows To Go (GPT / UEFI)",
-            "summary_drive": "Целевой накопитель",
-            "summary_iso": "Выбранный образ",
-            "summary_os": "Определенная система",
-            "summary_scheme": "Схема разметки",
-            "summary_edition": "Редакция",
-            "verify_row": "Проверить после записи",
-            "verify_hint": "Сравнить флешку с образом",
-            "speed_eta": "{pct}% · {speed} МБ/с · осталось {eta}",
-            "warn1_title": "Внимание!",
-            "warn1_body": "Все данные на накопителе\n<b>{dev}</b>\nбудут БЕЗВОЗВРАТНО УНИЧТОЖЕНЫ.\n\nПродолжить?",
-            "warn2_title": "Последнее предупреждение",
-            "warn2_body": "Вы абсолютно уверены? Это действие невозможно отменить.",
-            "done": "Запись завершена успешно",
-            "canceled": "Отменено пользователем",
-            "err_crit": "Критическая ошибка:",
-            "console_ready": "Инициализация... Ожидание старта.\n",
-            "interrupt_title": "Прервать прогресс записи?",
-            "interrupt_body": "Процесс записи образа все еще идет. Вы уверены, что хотите прервать его? Это приведет к неработоспособности накопителя до повторного форматирования",
-            "interrupt_yes": "Да, прервать",
-            "err_interrupted": "Прервано пользователем",
-            "stopping": "Остановка процесса записи...",
-            "stopping_left": "Остановка: осталось записать {mb} МБ",
-            "stopping_wait": "Lufux закроется, когда остановка закончится. Иначе в системе останется смонтированный образ.",
-            "btn_restart": "Начать заново",
-            "btn_close_app": "Закрыть программу",
-            "btn_close_dialog": "Закрыть",
-            "settings": "Параметры",
-            "theme": "Тема оформления",
-            "theme_sys": "Системная",
-            "theme_light": "Светлая",
-            "theme_dark": "Тёмная",
-            "language": "Язык интерфейса",
-            "lang_restart_title": "Смена языка",
-            "lang_restart_body": "Новый язык будет применен после перезапуска программы.",
-            "dep_missing_title": "Отсутствуют зависимости",
-            "dep_missing_body": "Для записи требуются системные пакеты:\n<b>{deps}</b>\n\nДистрибутив: <b>{distro}</b>\nУстановить их сейчас?",
-            "dep_unsupported": "Не хватает пакетов: <b>{deps}</b>\nПожалуйста, установите их вручную через пакетный менеджер.",
-            "btn_install": "Установить",
-            "iso_portal": "Lufux не может открыть образ из этой папки. Переложите его в домашнюю папку.",
-            "speed_title": "Накопитель слишком медленный",
-            "speed_body": (
-                "Замер накопителя:\n"
-                "• последовательная запись: <b>{seq} МБ/с</b>\n"
-                "• случайная запись 4 КБ: <b>{iops} операций/с</b>\n\n"
-                "Это мало. Нужно хотя бы {min_seq} МБ/с и {min_iops} операций/с. "
-                "Windows будет работать с этого накопителя: на такой скорости "
-                "она грузится часами и подвисает почти на любом действии.\n\n"
-                "Запись займёт несколько часов в любом случае. Накопитель уже "
-                "очищен, отмена оставит его пустым."
-            ),
-            "speed_ok": "Скорость накопителя {seq} МБ/с, {iops} операций/с. Этого достаточно",
-            "speed_slow": "Скорость накопителя {seq} МБ/с, {iops} операций/с. Этого мало",
-            "btn_continue_anyway": "Всё равно продолжить",
-            "speed_canceled": "Запись отменена: накопитель слишком медленный",
-            "cap_block_title": "Образ не поместится",
-            "cap_block_body": (
-                "Для записи нужно <b>{needed}</b>, а на накопителе "
-                "<b>{size}</b>.\n\n"
-                "Возьмите накопитель больше или выберите редакцию поменьше."
-            ),
-            "cap_tight_title": "Места почти не останется",
-            "cap_tight_body": (
-                "После развёртывания свободным останется около "
-                "<b>{free}</b>.\n\n"
-                "Windows ещё предстоит завершить первую настройку, и на таком "
-                "остатке она может не пройти её до конца."
-            ),
-            "cap_log": "Нужно {needed}, на накопителе {size}",
-            "err_code": "Код:",
-            "drive_changed": "Накопитель {dev} сменился после выбора. Выберите его заново.",
-            "flash_failed": "Запись не завершилась. Подробности в журнале.",
-            "scheme_dd": "Isohybrid (побайтовая копия через dd)"
-        }
     return {
         "title": "Lufux",
-        "about": "About",
-        "btn_next": "Next",
-        "btn_back": "Back",
-        "btn_start": "Start Flashing",
-        "btn_cancel": "Cancel",
-        "btn_yes": "Yes, wipe it",
-        "btn_done": "Done",
-        "drop_iso": "Drop to choose the image",
-        "notify_done": "Image written",
-        "notify_failed": "Writing failed",
-        "notify_body": "{name} on {dev}",
-        "step_drive": "Step 1: Select Drive",
-        "step_iso": "Step 2: Select ISO",
-        "step_summary": "Step 3: Summary",
-        "no_drives": "No drives found",
-        "pick_drive": "Select a drive",
-        "select_iso": "Select ISO Image",
-        "iso_not_selected": "No ISO selected",
-        "os_type": "OS Type:",
-        "edition": "Windows edition:",
-        "edition_reading": "Reading the image...",
-        "os_win": "Windows",
-        "os_lin": "Linux / Isohybrid",
-        "os_other": "Unknown / Other",
-        "partition_scheme": "Partition Scheme (for Windows):",
-        "scheme_gpt": "GPT (UEFI / FAT32)",
-        "scheme_mbr": "MBR (Legacy BIOS / NTFS)",
-        "wtg_mode": "Windows To Go (bootable Windows on USB)",
-        "wtg_summary": "Windows To Go (GPT / UEFI)",
-        "summary_drive": "Target Drive",
-        "summary_iso": "Selected ISO",
-        "summary_os": "Detected OS",
-        "summary_scheme": "Partition Scheme",
-        "summary_edition": "Edition",
-        "verify_row": "Verify after writing",
-        "verify_hint": "Compare the drive with the image",
-        "speed_eta": "{pct}% · {speed} MB/s · {eta} left",
-        "warn1_title": "Warning!",
-        "warn1_body": "All data on drive\n<b>{dev}</b>\nwill be PERMANENTLY DESTROYED.\n\nContinue?",
-        "warn2_title": "Final Warning",
-        "warn2_body": "Are you absolutely sure? This action cannot be undone.",
-        "done": "Flashing completed successfully",
-        "canceled": "Canceled by user",
-        "err_crit": "Critical Error:",
-        "console_ready": "Initialization... Waiting to start.\n",
-        "interrupt_title": "Interrupt flashing progress?",
-        "interrupt_body": "The image writing process is still ongoing. Are you sure you want to interrupt it? The drive will be unbootable.",
-        "interrupt_yes": "Yes, interrupt",
-        "err_interrupted": "Interrupted by user",
-        "stopping": "Stopping the flashing process...",
-        "stopping_left": "Stopping: {mb} MB left to write",
-        "stopping_wait": "Lufux can close once stopping is over. Otherwise the image stays mounted.",
-        "btn_restart": "Restart",
-        "btn_close_app": "Close Program",
-        "btn_close_dialog": "Close",
-        "settings": "Settings",
-        "theme": "Theme",
-        "theme_sys": "System",
-        "theme_light": "Light",
-        "theme_dark": "Dark",
-        "language": "Language",
-        "lang_restart_title": "Language Change",
-        "lang_restart_body": "The new language will be applied after restarting the application.",
-        "dep_missing_title": "Missing Dependencies",
-        "dep_missing_body": "The following system packages are required:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nInstall them now?",
-        "dep_unsupported": "Missing packages: <b>{deps}</b>\nPlease install them manually using your package manager.",
-        "btn_install": "Install",
-        "iso_portal": "Lufux cannot open the image from this folder. Move it to your home folder.",
-        "speed_title": "This drive is too slow",
-        "speed_body": (
+        "about": _("About"),
+        "btn_next": _("Next"),
+        "btn_back": _("Back"),
+        "btn_start": _("Start Flashing"),
+        "btn_cancel": _("Cancel"),
+        "btn_yes": _("Yes, wipe it"),
+        "btn_done": _("Done"),
+        "drop_iso": _("Drop to choose the image"),
+        "notify_done": _("Image written"),
+        "notify_failed": _("Writing failed"),
+        "notify_body": _("{name} on {dev}"),
+        "step_drive": _("Step 1: Select Drive"),
+        "step_iso": _("Step 2: Select ISO"),
+        "step_summary": _("Step 3: Summary"),
+        "no_drives": _("No drives found"),
+        "pick_drive": _("Select a drive"),
+        "select_iso": _("Select ISO Image"),
+        "iso_not_selected": _("No ISO selected"),
+        "os_type": _("OS Type:"),
+        "edition": _("Windows edition:"),
+        "edition_reading": _("Reading the image..."),
+        "os_win": _("Windows"),
+        "os_lin": _("Linux / Isohybrid"),
+        "os_other": _("Unknown / Other"),
+        "partition_scheme": _("Partition Scheme (for Windows):"),
+        "scheme_gpt": _("GPT (UEFI / FAT32)"),
+        "scheme_mbr": _("MBR (Legacy BIOS / NTFS)"),
+        "wtg_mode": _("Windows To Go (bootable Windows on USB)"),
+        "wtg_summary": _("Windows To Go (GPT / UEFI)"),
+        "summary_drive": _("Target Drive"),
+        "summary_iso": _("Selected ISO"),
+        "summary_os": _("Detected OS"),
+        "summary_scheme": _("Partition Scheme"),
+        "summary_edition": _("Edition"),
+        "verify_row": _("Verify after writing"),
+        "verify_hint": _("Compare the drive with the image"),
+        "speed_eta": _("{pct}% · {speed} MB/s · {eta} left"),
+        "warn1_title": _("Warning!"),
+        "warn1_body": _("All data on drive\n<b>{dev}</b>\nwill be PERMANENTLY DESTROYED.\n\nContinue?"),
+        "warn2_title": _("Final Warning"),
+        "warn2_body": _("Are you absolutely sure? This action cannot be undone."),
+        "done": _("Flashing completed successfully"),
+        "canceled": _("Canceled by user"),
+        "err_crit": _("Critical Error:"),
+        "console_ready": _("Initialization... Waiting to start.\n"),
+        "interrupt_title": _("Interrupt flashing progress?"),
+        "interrupt_body": _("The image writing process is still ongoing. Are you sure you want to interrupt it? The drive will be unbootable."),
+        "interrupt_yes": _("Yes, interrupt"),
+        "err_interrupted": _("Interrupted by user"),
+        "stopping": _("Stopping the flashing process..."),
+        "stopping_left": _("Stopping: {mb} MB left to write"),
+        "stopping_wait": _("Lufux can close once stopping is over. Otherwise the image stays mounted."),
+        "btn_restart": _("Restart"),
+        "btn_close_app": _("Close Program"),
+        "btn_close_dialog": _("Close"),
+        "settings": _("Settings"),
+        "theme": _("Theme"),
+        "theme_sys": _("System"),
+        "theme_light": _("Light"),
+        "theme_dark": _("Dark"),
+        "language": _("Language"),
+        "lang_restart_title": _("Language Change"),
+        "lang_restart_body": _("The new language will be applied after restarting the application."),
+        "dep_missing_title": _("Missing Dependencies"),
+        "dep_missing_body": _("The following system packages are required:\n<b>{deps}</b>\n\nDetected distribution: <b>{distro}</b>\nInstall them now?"),
+        "dep_unsupported": _("Missing packages: <b>{deps}</b>\nPlease install them manually using your package manager."),
+        "btn_install": _("Install"),
+        "iso_portal": _("Lufux cannot open the image from this folder. Move it to your home folder."),
+        "speed_title": _("This drive is too slow"),
+        "speed_body": _(
             "Measured on this drive:\n"
             "• sequential write — <b>{seq} MB/s</b>\n"
             "• random 4 KB write — <b>{iops} ops/s</b>\n\n"
@@ -388,28 +287,28 @@ def get_locale_dict():
             "Writing takes hours either way. The drive is already erased, so "
             "cancelling leaves it empty."
         ),
-        "speed_ok": "Drive speed: {seq} MB/s, {iops} ops/s — good enough",
-        "speed_slow": "Drive speed: {seq} MB/s, {iops} ops/s — too low",
-        "btn_continue_anyway": "Continue anyway",
-        "speed_canceled": "Flashing cancelled: the drive is too slow",
-        "cap_block_title": "The image will not fit",
-        "cap_block_body": (
+        "speed_ok": _("Drive speed: {seq} MB/s, {iops} ops/s — good enough"),
+        "speed_slow": _("Drive speed: {seq} MB/s, {iops} ops/s — too low"),
+        "btn_continue_anyway": _("Continue anyway"),
+        "speed_canceled": _("Flashing cancelled: the drive is too slow"),
+        "cap_block_title": _("The image will not fit"),
+        "cap_block_body": _(
             "Writing this needs <b>{needed}</b> and the drive holds "
             "<b>{size}</b>.\n\n"
             "Use a larger drive, or pick a smaller edition."
         ),
-        "cap_tight_title": "Almost nothing will be left free",
-        "cap_tight_body": (
+        "cap_tight_title": _("Almost nothing will be left free"),
+        "cap_tight_body": _(
             "About <b>{free}</b> would be free once the deployment "
             "finishes.\n\n"
             "Windows still has its first-run setup to get through, and it may "
             "not finish with that little room."
         ),
-        "cap_log": "Needs {needed}, the drive holds {size}",
-        "err_code": "Code:",
-        "drive_changed": "{dev} is another drive than the one chosen. Choose it again.",
-        "flash_failed": "Flashing did not finish. The log has the details.",
-        "scheme_dd": "Isohybrid (dd block copy)"
+        "cap_log": _("Needs {needed}, the drive holds {size}"),
+        "err_code": _("Code:"),
+        "drive_changed": _("{dev} is another drive than the one chosen. Choose it again."),
+        "flash_failed": _("Flashing did not finish. The log has the details."),
+        "scheme_dd": _("Isohybrid (dd block copy)")
     }
 
 T = get_locale_dict()
@@ -1116,8 +1015,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         lang_model = Gtk.StringList.new(["English", "Русский"])
         lang_row.set_model(lang_model)
 
-        # the saved choice can be ahead of LANG when it changed mid-flash
-        current_lang = APP_CONFIG.get("lang") or os.environ.get('LANG', '')
+        # the saved choice can be ahead of the loaded one when it changed mid-flash
+        current_lang = APP_CONFIG.get("lang") or i18n.language()
         lang_row.set_selected(1 if current_lang.startswith('ru') else 0)
         lang_row.connect("notify::selected", self.on_lang_changed)
         group.add(lang_row)
@@ -1147,6 +1046,7 @@ class LufuxWindow(Adw.ApplicationWindow):
             dialog.choose(self, None, lambda *args: None)
         else:
             os.environ['LANG'] = new_lang
+            i18n.set_language(new_lang)
             # not from inside the dialog's own signal: the dialog goes with the window
             GLib.idle_add(self.rebuild)
 

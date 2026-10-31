@@ -6,31 +6,20 @@ import tempfile
 
 from gi.repository import GLib
 
+from i18n import _
 from udisks_logic import (FILESYSTEM, NO_OPTIONS, bus, call, make_volume, mount,
                           mounted_iso, open_device, resolve, unmount, unmount_all)
 
 def get_locale_dict():
-    lang = os.environ.get('LANG', '')
-    if lang.startswith('ru'):
-        return {
-            "prep": "Подготовка накопителя...",
-            "copy_base": "Копирование базовых файлов...",
-            "copy_wim": "Прямое копирование WIM...",
-            "split_wim": "Разделение WIM-образа...",
-            "conv_lzx": "Конвертация в LZX (Solid архив)...",
-            "grub": "Установка загрузчика для Legacy BIOS (GRUB)...",
-            "sync": "Синхронизация ввода-вывода (sync)...",
-            "no_space": "Не хватает места в {dir} для перепаковки образа",
-        }
     return {
-        "prep": "Preparing drive...",
-        "copy_base": "Copying base files...",
-        "copy_wim": "Directly copying WIM...",
-        "split_wim": "Splitting WIM image...",
-        "conv_lzx": "Converting to LZX (Solid archive)...",
-        "grub": "Installing the Legacy BIOS bootloader (GRUB)...",
-        "sync": "Syncing I/O (sync)...",
-        "no_space": "Not enough space in {dir} to repack the image",
+        "prep": _("Preparing drive..."),
+        "copy_base": _("Copying base files..."),
+        "copy_wim": _("Directly copying WIM..."),
+        "split_wim": _("Splitting WIM image..."),
+        "conv_lzx": _("Converting to LZX (Solid archive)..."),
+        "grub": _("Installing the Legacy BIOS bootloader (GRUB)..."),
+        "sync": _("Syncing I/O (sync)..."),
+        "no_space": _("Not enough space in {dir} to repack the image"),
     }
 
 CHUNK = 4 << 20
