@@ -1,5 +1,5 @@
 pkgname=lufux-git
-pkgver=1.4.1
+pkgver=1.4.2
 pkgrel=1
 pkgdesc="Create bootable USB drives on Linux, including Windows To Go"
 arch=('any')
@@ -9,7 +9,7 @@ depends=('python-gobject' 'gtk4' 'libadwaita' 'wimlib' 'dosfstools' 'ntfs-3g' 'u
 optdepends=('grub: boot MBR/NTFS Windows media on Legacy BIOS')
 makedepends=('git' 'gettext')
 source=("main.py" "i18n.py" "windows_logic.py" "windows_togo_logic.py" "bcd_logic.py" "speed_logic.py" "universal_logic.py" "deps_logic.py" "iso_logic.py" "udisks_logic.py" "io.github.Advnirr.Lufux.desktop" "io.github.Advnirr.Lufux.metainfo.xml" "lufux.svg")
-sha256sums=('2f5cd0481c34225999944fbce5623adc5b4ba61e6d170439a29e6c4453d1db58'
+sha256sums=('4bd316043b62e409341f0fc6ecb26dbbeae3e2f63ec259f1e947c9663c8bdc1a'
             '0cdc971ff809763d10225aa3878250990241438de6ea85bcebedd7fad26ceee2'
             '52480ccfc84e74f50cc76a1e1530db4c8d41cdfef8bedbab6f137c8a15c7b4d8'
             'a8cbb5e912672cc92db3afc3c414f642a805dbda5b70db8ce44c6c9583a232a2'
@@ -20,7 +20,7 @@ sha256sums=('2f5cd0481c34225999944fbce5623adc5b4ba61e6d170439a29e6c4453d1db58'
             '1aa2cd97a60cd49d761a9605cc7fa1d47ef0f6fca0cb1342ed9a2db395bb9bd4'
             '760f248ab79615af3d296003df121a26bdd91e55ef9a83a2db062d57333841b0'
             '34bf2767d1e54db44d2e76bd13459fb70f744ed03bd4a0224af12f12f5aa1281'
-            'c96431dddcacbe85108ea5e86ab46ed06f46f2fe3c4cb546816fcb465207580c'
+            '1701db653eaf57000073d33958753a677f1de1c95364c2652baa84c85e54dfa5'
             '706e7d7c0ea396617b8cb9f15890cb616ceafab98237d7296c5b3c6aaba3fb2e')
 
 package() {

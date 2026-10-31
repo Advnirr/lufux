@@ -201,7 +201,7 @@ from udisks_logic import (PortalPath, can_format, device_size, drive_identity, i
 from deps_logic import check_dependencies, get_distro_info, get_install_cmd
 from iso_logic import identify, iso_kind, volume_label, windows_name
 
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.2"
 GITHUB_URL = "https://github.com/Advnirr/lufux"
 WEB_URL = "https://advnirr.org/"
 
