@@ -272,6 +272,7 @@ def get_locale_dict():
             "err_interrupted": "Прервано пользователем",
             "stopping": "Остановка процесса записи...",
             "stopping_left": "Остановка: осталось записать {mb} МБ",
+            "stopping_wait": "Lufux закроется, когда остановка закончится. Иначе в системе останется смонтированный образ.",
             "btn_restart": "Начать заново",
             "btn_close_app": "Закрыть программу",
             "btn_close_dialog": "Закрыть",
@@ -377,6 +378,7 @@ def get_locale_dict():
         "err_interrupted": "Interrupted by user",
         "stopping": "Stopping the flashing process...",
         "stopping_left": "Stopping: {mb} MB left to write",
+        "stopping_wait": "Lufux can close once stopping is over. Otherwise the image stays mounted.",
         "btn_restart": "Restart",
         "btn_close_app": "Close Program",
         "btn_close_dialog": "Close",
@@ -437,6 +439,8 @@ class LufuxWindow(Adw.ApplicationWindow):
         self.set_default_size(600, 520)
 
         self.iso_path = None
+        # the ISO whose editions were read or are being read
+        self.editions_read = None
         self.selected_dev = None
         self.drive_ident = None
         # [(image index, name)] read out of the chosen ISO, empty until then
@@ -446,6 +450,7 @@ class LufuxWindow(Adw.ApplicationWindow):
 
         self.is_flashing = False
         self.speed_refused = False
+        self.worker = None
         # background jobs other than the flash that report back to this window
         self.jobs = 0
 
@@ -617,6 +622,9 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def on_os_changed(self, dropdown, param):
         is_windows = dropdown.get_selected() == 0
+        if is_windows:
+            # also when the user corrects a wrong guess
+            self.start_reading_editions()
         self.wtg_check.set_visible(is_windows)
         wtg = is_windows and self.wtg_check.get_active()
         self.scheme_label.set_visible(is_windows and not wtg)
@@ -666,11 +674,22 @@ class LufuxWindow(Adw.ApplicationWindow):
             return self.editions[pos][2]
         return self.editions[0][2] if self.editions else 0
 
+    def start_reading_editions(self):
+        """Read the Windows editions out of the ISO, once per ISO."""
+        iso = self.iso_path
+        if not iso or iso == self.editions_read:
+            return
+        self.editions_read = iso
+        self.jobs += 1
+        # not a daemon: at exit Python waits for it, so the ISO gets unmounted
+        threading.Thread(target=self.read_editions, args=(iso,)).start()
+
     def read_editions(self, iso):
         editions = list_iso_editions(iso)
         GLib.idle_add(self.apply_editions, iso, editions)
 
     def apply_editions(self, iso, editions):
+        self.jobs -= 1
         # a second ISO can be chosen while the first one is still being read
         if iso != self.iso_path:
             return
@@ -1037,6 +1056,13 @@ class LufuxWindow(Adw.ApplicationWindow):
             dialog.set_response_appearance("yes", Adw.ResponseAppearance.DESTRUCTIVE)
             dialog.choose(self, None, self.on_interrupt_response)
             return True
+        # the writer still has to unmount and drop the loop device; killed
+        # with the process, it leaves both behind
+        if self.worker and self.worker.is_alive():
+            dialog = Adw.AlertDialog(heading=T["stopping"], body=T["stopping_wait"])
+            dialog.add_response("ok", T["btn_close_dialog"])
+            dialog.choose(self, None, lambda *_: None)
+            return True
         return False
 
     def on_interrupt_response(self, dialog, result):
@@ -1235,14 +1261,15 @@ class LufuxWindow(Adw.ApplicationWindow):
 
     def set_iso(self, path):
         self.iso_path = path
+        self.editions = []
+        self.editions_read = None
         self.iso_label.set_label(os.path.basename(path))
         self.analyze_iso()
-        self.editions = []
         self.update_edition_visible()
         self.update_iso_badge()
         # only Windows has editions; a loop mount of anything else is wasted time
         if self.os_dropdown.get_selected() == 0:
-            threading.Thread(target=self.read_editions, args=(path,), daemon=True).start()
+            self.start_reading_editions()
         self.update_ui_state()
 
     # A current Windows ISO keeps its real tree in a UDF filesystem and leaves
